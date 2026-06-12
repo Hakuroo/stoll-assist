@@ -27,6 +27,12 @@ CREATE TABLE IF NOT EXISTS conversations (
     contact_id uuid NOT NULL REFERENCES contacts(id),
     state text NOT NULL DEFAULT 'AUTOMATED',
     assigned_user_id uuid,
+    assigned_operator text,
+    last_state_reason text,
+    state_changed_at timestamptz NOT NULL DEFAULT now(),
+    automation_suspended_at timestamptz,
+    closed_at timestamptz,
+    state_version integer NOT NULL DEFAULT 0,
     last_message_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     CHECK (state IN ('AUTOMATED', 'HUMAN_REQUIRED', 'HUMAN_ACTIVE', 'CLOSED'))
@@ -86,6 +92,11 @@ CREATE TABLE IF NOT EXISTS handoffs (
     reason_code text NOT NULL,
     summary text,
     status text NOT NULL DEFAULT 'OPEN',
+    requested_by text,
+    taken_by text,
+    taken_at timestamptz,
+    resolved_by text,
+    resolution_note text,
     created_at timestamptz NOT NULL DEFAULT now(),
     resolved_at timestamptz,
     CHECK (status IN ('OPEN', 'TAKEN', 'RESOLVED'))
@@ -153,3 +164,11 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
 
 CREATE INDEX IF NOT EXISTS idx_messages_tenant_provider_message
     ON messages (tenant_id, provider_message_id);
+
+
+CREATE INDEX IF NOT EXISTS idx_conversations_tenant_state_changed
+    ON conversations (tenant_id, state, state_changed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_handoffs_conversation_active
+    ON handoffs (conversation_id, created_at DESC)
+    WHERE status IN ('OPEN', 'TAKEN');
