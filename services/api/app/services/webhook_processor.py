@@ -7,6 +7,8 @@ from sqlalchemy import Engine
 from app.normalization import normalize_whatsapp_messages
 from app.repositories.messages import persist_inbound_messages_with_context
 from app.repositories.webhook_events import complete_webhook_event
+from app.services.drafting_providers import DraftingProvider
+from app.services.llm_drafting import draft_response_if_enabled
 from app.services.conversation_state import request_handoff
 from app.services.outbound_pipeline import stage_verified_response
 from app.services.policy_service import evaluate_and_apply_policy
@@ -32,6 +34,8 @@ def process_whatsapp_webhook(
     event_id: UUID,
     tenant_slug: str,
     payload: dict[str, Any],
+    drafting_provider: DraftingProvider | None = None,
+    llm_drafting_enabled: bool | None = None,
 ) -> ProcessingResult:
     try:
         normalized = normalize_whatsapp_messages(payload)
@@ -66,6 +70,31 @@ def process_whatsapp_webhook(
                 policy=result.decision,
             )
             response_plans += 1
+
+            drafting = draft_response_if_enabled(
+                engine=engine,
+                tenant_slug=tenant_slug,
+                message=message,
+                plan=plan,
+                settings=settings,
+                provider=drafting_provider,
+                enabled=llm_drafting_enabled,
+            )
+            plan = drafting.plan
+
+            if drafting.defer_verification:
+                continue
+
+            if drafting.should_handoff:
+                request_handoff(
+                    engine=engine,
+                    tenant_slug=tenant_slug,
+                    conversation_id=message.conversation_id,
+                    requested_by=settings.agent_name,
+                    reason_code="llm_drafting_handoff",
+                    summary="La etapa de redaccion asistida no pudo generar un borrador seguro.",
+                )
+                continue
 
             verification = verify_and_record_response(
                 engine=engine,

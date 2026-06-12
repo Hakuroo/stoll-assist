@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     openai_generation_model: str = "gpt-5.4-mini"
     openai_verifier_model: str = "gpt-5.4-mini"
     openai_embedding_model: str = "text-embedding-3-small"
+    llm_drafting_enabled: bool = False
+    llm_drafting_provider: str = "openai"
+    llm_drafting_timeout_seconds: float = 10.0
+    llm_drafting_lease_seconds: int = 60
+    llm_drafting_max_history_messages: int = 6
 
     default_tenant_slug: str = "grupo-stoll"
     knowledge_config_path: str = "/app/config/stoll/knowledge"

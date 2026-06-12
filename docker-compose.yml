@@ -88,7 +88,12 @@ services:
       META_ACCESS_TOKEN: not-used-in-tests
       META_PHONE_NUMBER_ID: test-phone-number-id
       META_API_VERSION: v99.0
-      OPENAI_API_KEY: not-used-in-tests
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-not-used-in-tests}
+      OPENAI_GENERATION_MODEL: ${OPENAI_GENERATION_MODEL:-gpt-5.4-mini}
+      LLM_DRAFTING_ENABLED: "false"
+      LLM_DRAFTING_PROVIDER: openai
+      LLM_DRAFTING_LEASE_SECONDS: "60"
+      RUN_LIVE_OPENAI_TEST: ${RUN_LIVE_OPENAI_TEST:-0}
       KNOWLEDGE_CONFIG_PATH: /app/config/stoll/knowledge
       PGHOST: postgres
       PGUSER: stoll

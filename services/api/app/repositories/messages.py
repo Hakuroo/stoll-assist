@@ -1,6 +1,7 @@
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import Connection, Engine, text
@@ -15,6 +16,15 @@ class PersistedInboundMessage:
     provider_message_id: str
     message_type: str
     body_text: str | None
+
+
+@dataclass(frozen=True)
+class ConversationMessage:
+    message_id: UUID
+    direction: str
+    message_type: str
+    body_text: str | None
+    created_at: datetime
 
 
 def persist_inbound_messages(
@@ -174,6 +184,46 @@ def _get_existing_inbound_message(
         message_type=row["message_type"],
         body_text=row["body_text"],
     )
+
+
+def list_recent_conversation_messages(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    conversation_id: UUID,
+    limit: int = 6,
+) -> list[ConversationMessage]:
+    limit = min(max(limit, 1), 12)
+    with engine.connect() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        rows = connection.execute(
+            text(
+                """
+                SELECT id, direction, message_type, body_text, created_at
+                FROM messages
+                WHERE tenant_id = :tenant_id
+                  AND conversation_id = :conversation_id
+                ORDER BY created_at DESC
+                LIMIT :limit
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "conversation_id": conversation_id,
+                "limit": limit,
+            },
+        ).mappings().all()
+
+    return [
+        ConversationMessage(
+            message_id=row["id"],
+            direction=row["direction"],
+            message_type=row["message_type"],
+            body_text=row["body_text"],
+            created_at=row["created_at"],
+        )
+        for row in reversed(rows)
+    ]
 
 
 def _get_active_tenant_id(connection: Connection, tenant_slug: str) -> UUID:
