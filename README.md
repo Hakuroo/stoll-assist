@@ -150,3 +150,17 @@ Prueba local:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\test-knowledge-base.ps1
 ```
+
+## Response planner (v0.8)
+
+The response planner combines four independent controls before any future message can be sent:
+
+1. conversation state;
+2. deterministic policy evaluation;
+3. published knowledge retrieval;
+4. explicit allowed and forbidden claims.
+
+It stores a response plan for each inbound message with one of four decisions:
+`ANSWER`, `ASK`, `HANDOFF`, or `IGNORE`. Version 0.8 does not send WhatsApp
+messages. Its draft is an auditable intermediate artifact for later generation and
+verification.
