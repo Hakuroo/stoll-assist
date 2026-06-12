@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "stoll-assist-api"
 version = "0.1.0"
@@ -33,3 +37,8 @@ target-version = "py312"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["config*", "tests*"]
+namespaces = false

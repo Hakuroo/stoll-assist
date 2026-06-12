@@ -39,8 +39,10 @@ services:
   api:
     build:
       context: ./services/api
+      target: production
     env_file:
-      - .env
+      - path: .env
+        required: false
     ports:
       - "8000:8000"
     volumes:
@@ -58,8 +60,10 @@ services:
   worker:
     build:
       context: ./services/api
+      target: production
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
       - ./services/api:/app
       - ./config:/app/config:ro
@@ -69,6 +73,35 @@ services:
       redis:
         condition: service_started
     command: python -u -m app.worker
+
+  test:
+    build:
+      context: ./services/api
+      target: test
+    environment:
+      APP_ENV: test
+      DATABASE_URL: postgresql+psycopg://stoll:stoll@postgres:5432/stoll_assist
+      REDIS_URL: redis://redis:6379/0
+      WEBHOOK_QUEUE_NAME: stoll:test:webhooks
+      META_VERIFY_TOKEN: test-token
+      META_APP_SECRET: replace-me
+      META_ACCESS_TOKEN: not-used-in-tests
+      META_PHONE_NUMBER_ID: test-phone-number-id
+      META_API_VERSION: v99.0
+      OPENAI_API_KEY: not-used-in-tests
+      KNOWLEDGE_CONFIG_PATH: /app/config/stoll/knowledge
+      PGHOST: postgres
+      PGUSER: stoll
+      PGPASSWORD: stoll
+      PGDATABASE: stoll_assist
+    volumes:
+      - ./config:/app/config:ro
+      - ./infra/postgres/migrations:/app/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
 
 volumes:

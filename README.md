@@ -47,6 +47,20 @@ docker compose up --build
 http://localhost:8000/health
 ```
 
+## Pruebas locales
+
+Desde un checkout limpio, las pruebas se ejecutan con un unico comando:
+
+```bash
+docker compose run --rm --build test
+```
+
+El servicio `test` construye una imagen separada con las dependencias de desarrollo,
+aplica las migraciones SQL sobre PostgreSQL, ejecuta `compileall` y corre `pytest`.
+No requiere `.env`: usa credenciales locales dummy y no conecta OpenAI ni WhatsApp real.
+La imagen normal de `api` y `worker` se construye desde el target `production`, sin
+instalar dependencias de testing.
+
 ## Estado
 
 Este repositorio es un **scaffold técnico**, no una aplicación terminada. La siguiente etapa implementa:
