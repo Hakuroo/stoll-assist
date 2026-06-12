@@ -123,3 +123,15 @@ Version 0.5 adds explicit, audited conversation states:
 - `CLOSED`: the conversation is immutable; a new inbound message creates a new conversation.
 
 Local operator endpoints are available under `/operator/conversations`. They are intentionally unauthenticated only for development; authentication and roles are added before any public deployment.
+
+
+## Policy engine v0.6
+
+The deterministic policy layer evaluates newly persisted inbound messages before any AI response is considered. Rules are tenant-scoped and stored in PostgreSQL. High-risk topics such as prices, structural calculations, guarantees, complaints and internal information automatically move an `AUTOMATED` conversation to `HUMAN_REQUIRED` and create an auditable handoff.
+
+Local operator endpoints:
+
+```text
+GET  /operator/policies
+POST /operator/policies/preview
+```
