@@ -125,14 +125,21 @@ CREATE TABLE IF NOT EXISTS webhook_events (
     status text NOT NULL DEFAULT 'RECEIVED',
     payload jsonb NOT NULL,
     received_at timestamptz NOT NULL DEFAULT now(),
+    queued_at timestamptz,
+    attempt_count integer NOT NULL DEFAULT 0,
+    last_attempt_at timestamptz,
     processed_at timestamptz,
     error_message text,
     UNIQUE (tenant_id, provider, provider_event_id),
-    CHECK (status IN ('RECEIVED', 'PROCESSING', 'PROCESSED', 'IGNORED', 'FAILED'))
+    CHECK (status IN ('RECEIVED', 'QUEUED', 'PROCESSING', 'PROCESSED', 'IGNORED', 'FAILED'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_webhook_events_tenant_status_received
     ON webhook_events (tenant_id, status, received_at);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_events_queue_status
+    ON webhook_events (status, queued_at)
+    WHERE status IN ('QUEUED', 'PROCESSING', 'FAILED');
 
 
 CREATE INDEX IF NOT EXISTS idx_contacts_tenant_whatsapp_user

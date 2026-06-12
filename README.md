@@ -99,3 +99,15 @@ Aplicar la migración y probar:
 .\scripts\apply-migrations.ps1
 .\scripts\test-normalization.ps1
 ```
+
+## v0.4 — procesamiento asíncrono
+
+El endpoint de WhatsApp ahora solo valida, persiste y encola el evento. Un contenedor `worker`
+consume la cola de Redis, reclama el evento de forma atómica y ejecuta la normalización fuera
+del ciclo HTTP. Los eventos registran `queued_at`, `attempt_count` y `last_attempt_at`.
+
+Prueba local:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-async-processing.ps1
+```
