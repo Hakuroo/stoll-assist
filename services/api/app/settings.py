@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
 
     default_tenant_slug: str = "grupo-stoll"
+    knowledge_config_path: str = "/app/config/stoll/knowledge"
     agent_name: str = "Agustina"
     agent_disclosure: str = (
         "Soy Agustina, asistente digital del equipo de Grupo Stöll."

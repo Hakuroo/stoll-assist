@@ -1,5 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS unaccent;
 
 CREATE TABLE IF NOT EXISTS tenants (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -65,12 +67,40 @@ CREATE TABLE IF NOT EXISTS knowledge_items (
     version integer NOT NULL DEFAULT 1,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     embedding vector(1536),
+    source_path text,
+    checksum text,
+    allowed_claims jsonb NOT NULL DEFAULT '[]'::jsonb,
+    forbidden_claims jsonb NOT NULL DEFAULT '[]'::jsonb,
     approved_by text,
     approved_at timestamptz,
+    published_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    search_vector tsvector GENERATED ALWAYS AS (
+        to_tsvector('spanish', coalesce(title, '') || ' ' || coalesce(content, ''))
+    ) STORED,
     UNIQUE (tenant_id, external_key, version),
     CHECK (status IN ('draft', 'published', 'archived'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_items_tenant_status
+    ON knowledge_items (tenant_id, status, external_key, version DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_items_search_vector
+    ON knowledge_items USING gin (search_vector);
+CREATE INDEX IF NOT EXISTS idx_knowledge_items_title_trgm
+    ON knowledge_items USING gin (title gin_trgm_ops);
+
+CREATE TABLE IF NOT EXISTS knowledge_search_events (
+    id bigserial PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    query_text text NOT NULL,
+    result_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+    top_score double precision,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_search_events_tenant_created
+    ON knowledge_search_events (tenant_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS policy_rules (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

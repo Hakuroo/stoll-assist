@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.database import get_engine
 from app.queue import enqueue_webhook_event
 from app.routers.conversations import router as conversations_router
+from app.routers.knowledge import router as knowledge_router
 from app.routers.policies import router as policies_router
 from app.repositories.webhook_events import (
     complete_webhook_event,
@@ -23,11 +24,12 @@ settings = get_settings()
 
 app = FastAPI(
     title="Stöll Assist API",
-    version="0.6.0",
+    version="0.7.0",
     description="Webhook, policy and handoff core for a multi-tenant WhatsApp assistant.",
 )
 
 app.include_router(conversations_router)
+app.include_router(knowledge_router)
 app.include_router(policies_router)
 
 
