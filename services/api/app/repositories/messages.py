@@ -1,10 +1,20 @@
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import Connection, Engine, text
 
 from app.normalization import NormalizedInboundMessage
+
+
+@dataclass(frozen=True)
+class PersistedInboundMessage:
+    message_id: UUID
+    conversation_id: UUID
+    provider_message_id: str
+    message_type: str
+    body_text: str | None
 
 
 def persist_inbound_messages(
@@ -13,10 +23,25 @@ def persist_inbound_messages(
     tenant_slug: str,
     messages: Sequence[NormalizedInboundMessage],
 ) -> int:
-    if not messages:
-        return 0
+    return len(
+        persist_inbound_messages_with_context(
+            engine=engine,
+            tenant_slug=tenant_slug,
+            messages=messages,
+        )
+    )
 
-    inserted_count = 0
+
+def persist_inbound_messages_with_context(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    messages: Sequence[NormalizedInboundMessage],
+) -> list[PersistedInboundMessage]:
+    if not messages:
+        return []
+
+    persisted: list[PersistedInboundMessage] = []
 
     with engine.begin() as connection:
         tenant_id = _get_active_tenant_id(connection, tenant_slug)
@@ -29,7 +54,7 @@ def persist_inbound_messages(
                 contact_id,
             )
 
-            inserted_id = connection.execute(
+            inserted = connection.execute(
                 text(
                     """
                     INSERT INTO messages (
@@ -55,7 +80,7 @@ def persist_inbound_messages(
                         CAST(:raw_payload AS jsonb)
                     )
                     ON CONFLICT (tenant_id, provider_message_id) DO NOTHING
-                    RETURNING id
+                    RETURNING id, conversation_id, provider_message_id, message_type, body_text
                     """
                 ),
                 {
@@ -68,13 +93,21 @@ def persist_inbound_messages(
                     "metadata": json.dumps(message.metadata, ensure_ascii=False),
                     "raw_payload": json.dumps(message.raw_message, ensure_ascii=False),
                 },
-            ).scalar_one_or_none()
+            ).mappings().one_or_none()
 
-            if inserted_id is None:
+            if inserted is None:
                 continue
 
-            inserted_count += 1
-            effective_timestamp = message.provider_timestamp
+            persisted.append(
+                PersistedInboundMessage(
+                    message_id=inserted["id"],
+                    conversation_id=inserted["conversation_id"],
+                    provider_message_id=inserted["provider_message_id"],
+                    message_type=inserted["message_type"],
+                    body_text=inserted["body_text"],
+                )
+            )
+
             connection.execute(
                 text(
                     """
@@ -89,11 +122,11 @@ def persist_inbound_messages(
                 ),
                 {
                     "conversation_id": conversation_id,
-                    "message_timestamp": effective_timestamp,
+                    "message_timestamp": message.provider_timestamp,
                 },
             )
 
-    return inserted_count
+    return persisted
 
 
 def _get_active_tenant_id(connection: Connection, tenant_slug: str) -> UUID:
@@ -149,7 +182,6 @@ def _get_or_create_active_conversation(
     tenant_id: UUID,
     contact_id: UUID,
 ) -> UUID:
-    # Serializa la creación de la conversación activa para este contacto.
     connection.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
         {"lock_key": f"{tenant_id}:{contact_id}"},

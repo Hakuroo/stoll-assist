@@ -117,3 +117,30 @@ class ConversationResponse(BaseModel):
 class StateTransitionResponse(BaseModel):
     changed: bool
     conversation: ConversationResponse
+
+
+class PolicyAction(StrEnum):
+    ALLOW = "ALLOW"
+    HANDOFF = "HANDOFF"
+    IGNORE = "IGNORE"
+
+
+class PolicyPreviewRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class PolicyDecisionResponse(BaseModel):
+    decision: PolicyAction
+    matched_rule_key: str | None
+    risk_level: str = Field(pattern="^(low|medium|high)$")
+    reason: str
+    matched_evidence: list[str] = Field(default_factory=list)
+
+
+class PolicyRuleResponse(BaseModel):
+    rule_key: str
+    description: str
+    action: PolicyAction
+    priority: int
+    enabled: bool
+    risk_level: str
