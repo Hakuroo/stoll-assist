@@ -74,6 +74,22 @@ services:
         condition: service_started
     command: python -u -m app.worker
 
+  dashboard:
+    build:
+      context: ./apps/dashboard
+    environment:
+      API_BASE_URL: http://api:8000
+      DASHBOARD_TENANT_SLUG: grupo-stoll
+      DASHBOARD_OPERATOR_NAME: Operador local
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/dashboard:/app
+      - dashboard_node_modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_started
+
   test:
     build:
       context: ./services/api
@@ -113,3 +129,4 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  dashboard_node_modules:
