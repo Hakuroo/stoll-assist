@@ -333,6 +333,33 @@ def search_published_knowledge(
         return hits
 
 
+
+def get_published_knowledge_by_keys(
+    *, engine: Engine, tenant_slug: str, external_keys: list[str]
+) -> list[KnowledgeItem]:
+    keys = [value.strip() for value in external_keys if value and value.strip()]
+    if not keys:
+        return []
+
+    with engine.connect() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        rows = connection.execute(
+            text(
+                """
+                SELECT id, external_key, title, content, status, risk_class, version,
+                       source_path, checksum, allowed_claims, forbidden_claims,
+                       approved_by, approved_at, published_at, created_at, updated_at
+                FROM knowledge_items
+                WHERE tenant_id = :tenant_id
+                  AND status = 'published'
+                  AND external_key = ANY(CAST(:external_keys AS text[]))
+                ORDER BY array_position(CAST(:external_keys AS text[]), external_key)
+                """
+            ),
+            {"tenant_id": tenant_id, "external_keys": keys},
+        ).mappings().all()
+        return [_row_to_item(row) for row in rows]
+
 def _normalize_payload(payload: dict[str, Any], path: Path) -> dict[str, Any]:
     external_key = str(payload.get("external_key") or "").strip()
     title = str(payload.get("title") or "").strip()

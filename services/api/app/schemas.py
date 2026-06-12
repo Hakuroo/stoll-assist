@@ -251,3 +251,28 @@ class ResponsePlanResponse(BaseModel):
             draft_reply=plan.draft_reply,
             planner_version=plan.planner_version,
         )
+
+
+class ResponseVerificationPreviewRequest(BaseModel):
+    decision: Decision
+    draft_reply: str | None = Field(default=None, max_length=4000)
+    knowledge_keys: list[str] = Field(default_factory=list, max_length=10)
+    forbidden_claims: list[str] = Field(default_factory=list, max_length=50)
+
+
+class ResponseVerificationResponse(BaseModel):
+    status: str = Field(pattern="^(APPROVED|REJECTED|SKIPPED)$")
+    reason_code: str
+    checks: dict[str, Any] = Field(default_factory=dict)
+    unsupported_claims: list[str] = Field(default_factory=list)
+    verifier_version: str
+
+    @classmethod
+    def from_verification(cls, verification: Any) -> "ResponseVerificationResponse":
+        return cls(
+            status=verification.status,
+            reason_code=verification.reason_code,
+            checks=verification.checks,
+            unsupported_claims=verification.unsupported_claims,
+            verifier_version=verification.verifier_version,
+        )
