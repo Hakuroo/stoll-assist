@@ -36,3 +36,5 @@ class WebhookAccepted(BaseModel):
     accepted: bool = True
     duplicate: bool = False
     event_id: UUID
+    event_status: str
+    normalized_messages: int = 0

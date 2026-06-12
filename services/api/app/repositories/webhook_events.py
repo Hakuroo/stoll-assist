@@ -9,6 +9,13 @@ from sqlalchemy import Engine, text
 class StoredWebhookEvent:
     event_id: UUID
     duplicate: bool
+    status: str
+
+
+@dataclass(frozen=True)
+class WebhookClaim:
+    claimed: bool
+    status: str
 
 
 def store_webhook_event(
@@ -29,7 +36,7 @@ def store_webhook_event(
         if tenant_id is None:
             raise LookupError(f"Active tenant not found: {tenant_slug}")
 
-        inserted_id = connection.execute(
+        inserted = connection.execute(
             text(
                 """
                 INSERT INTO webhook_events (
@@ -51,7 +58,7 @@ def store_webhook_event(
                     CAST(:payload AS jsonb)
                 )
                 ON CONFLICT (tenant_id, provider, provider_event_id) DO NOTHING
-                RETURNING id
+                RETURNING id, status
                 """
             ),
             {
@@ -61,15 +68,19 @@ def store_webhook_event(
                 "event_kind": event_kind,
                 "payload": __import__("json").dumps(payload, ensure_ascii=False),
             },
-        ).scalar_one_or_none()
+        ).mappings().one_or_none()
 
-        if inserted_id is not None:
-            return StoredWebhookEvent(event_id=inserted_id, duplicate=False)
+        if inserted is not None:
+            return StoredWebhookEvent(
+                event_id=inserted["id"],
+                duplicate=False,
+                status=inserted["status"],
+            )
 
-        existing_id = connection.execute(
+        existing = connection.execute(
             text(
                 """
-                SELECT id
+                SELECT id, status
                 FROM webhook_events
                 WHERE tenant_id = :tenant_id
                   AND provider = :provider
@@ -81,6 +92,66 @@ def store_webhook_event(
                 "provider": provider,
                 "provider_event_id": provider_event_id,
             },
+        ).mappings().one()
+
+        return StoredWebhookEvent(
+            event_id=existing["id"],
+            duplicate=True,
+            status=existing["status"],
+        )
+
+
+def claim_webhook_event(*, engine: Engine, event_id: UUID) -> WebhookClaim:
+    with engine.begin() as connection:
+        claimed_status = connection.execute(
+            text(
+                """
+                UPDATE webhook_events
+                SET status = 'PROCESSING',
+                    error_message = NULL
+                WHERE id = :event_id
+                  AND status IN ('RECEIVED', 'FAILED')
+                RETURNING status
+                """
+            ),
+            {"event_id": event_id},
+        ).scalar_one_or_none()
+
+        if claimed_status is not None:
+            return WebhookClaim(claimed=True, status=claimed_status)
+
+        current_status = connection.execute(
+            text("SELECT status FROM webhook_events WHERE id = :event_id"),
+            {"event_id": event_id},
         ).scalar_one()
 
-        return StoredWebhookEvent(event_id=existing_id, duplicate=True)
+        return WebhookClaim(claimed=False, status=current_status)
+
+
+def complete_webhook_event(
+    *,
+    engine: Engine,
+    event_id: UUID,
+    status: str,
+    error_message: str | None = None,
+) -> None:
+    if status not in {"PROCESSED", "IGNORED", "FAILED"}:
+        raise ValueError(f"Unsupported terminal webhook status: {status}")
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE webhook_events
+                SET status = :status,
+                    processed_at = now(),
+                    error_message = :error_message
+                WHERE id = :event_id
+                """
+            ),
+            {
+                "event_id": event_id,
+                "status": status,
+                "error_message": error_message,
+            },
+        )

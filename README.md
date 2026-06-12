@@ -81,3 +81,21 @@ Probar localmente con una firma válida:
 ```powershell
 .\scripts\test-webhook.ps1
 ```
+
+## Incremento v0.3 — normalización de mensajes
+
+La API ahora convierte los payloads de Meta en entidades internas:
+
+- crea o actualiza el contacto de WhatsApp;
+- reutiliza una conversación activa o crea una nueva;
+- guarda el mensaje con tipo, texto, fecha del proveedor y metadatos;
+- conserva el mensaje original para auditoría;
+- marca el webhook como `PROCESSED`, `IGNORED` o `FAILED`;
+- mantiene idempotencia tanto a nivel webhook como a nivel mensaje.
+
+Aplicar la migración y probar:
+
+```powershell
+.\scripts\apply-migrations.ps1
+.\scripts\test-normalization.ps1
+```

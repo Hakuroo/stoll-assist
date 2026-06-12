@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS messages (
     direction text NOT NULL,
     message_type text NOT NULL,
     body_text text,
+    provider_timestamp timestamptz,
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     raw_payload jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, provider_message_id),
@@ -131,3 +133,16 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 
 CREATE INDEX IF NOT EXISTS idx_webhook_events_tenant_status_received
     ON webhook_events (tenant_id, status, received_at);
+
+
+CREATE INDEX IF NOT EXISTS idx_contacts_tenant_whatsapp_user
+    ON contacts (tenant_id, whatsapp_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_tenant_contact_state
+    ON conversations (tenant_id, contact_id, state, last_message_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
+    ON messages (conversation_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_messages_tenant_provider_message
+    ON messages (tenant_id, provider_message_id);
