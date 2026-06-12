@@ -111,3 +111,15 @@ Prueba local:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\test-async-processing.ps1
 ```
+
+
+## Conversation state machine
+
+Version 0.5 adds explicit, audited conversation states:
+
+- `AUTOMATED`: the assistant may produce a response.
+- `HUMAN_REQUIRED`: automation is suspended and a handoff is open.
+- `HUMAN_ACTIVE`: an operator owns the conversation; automation must remain silent.
+- `CLOSED`: the conversation is immutable; a new inbound message creates a new conversation.
+
+Local operator endpoints are available under `/operator/conversations`. They are intentionally unauthenticated only for development; authentication and roles are added before any public deployment.
