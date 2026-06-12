@@ -1,0 +1,518 @@
+import hashlib
+import json
+from dataclasses import dataclass
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy import Connection, Engine, text
+
+
+class OutboxTransitionError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class StoredOutboundMessage:
+    outbound_id: UUID
+    conversation_id: UUID
+    in_reply_to_message_id: UUID
+    plan_id: UUID
+    verification_id: UUID
+    channel: str
+    recipient: str
+    display_name: str | None
+    body_text: str
+    body_sha256: str
+    status: str
+    requires_review: bool
+    approved_by: str | None
+    approved_at: Any
+    rejected_by: str | None
+    rejected_at: Any
+    rejection_reason: str | None
+    provider_message_id: str | None
+    created_at: Any
+    updated_at: Any
+
+
+def create_outbound_draft(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    verification_id: UUID,
+) -> StoredOutboundMessage | None:
+    with engine.begin() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        source = connection.execute(
+            text(
+                """
+                SELECT
+                    t.outbound_mode,
+                    c.id AS conversation_id,
+                    c.state AS conversation_state,
+                    ct.whatsapp_user_id AS recipient,
+                    ct.display_name,
+                    rp.id AS plan_id,
+                    rp.message_id,
+                    rp.decision,
+                    rp.draft_reply,
+                    rv.id AS verification_id,
+                    rv.status AS verification_status
+                FROM response_verifications rv
+                JOIN response_plans rp ON rp.id = rv.plan_id
+                JOIN conversations c ON c.id = rv.conversation_id
+                JOIN contacts ct ON ct.id = c.contact_id
+                JOIN tenants t ON t.id = rv.tenant_id
+                WHERE rv.id = :verification_id
+                  AND rv.tenant_id = :tenant_id
+                FOR UPDATE OF rv, rp, c
+                """
+            ),
+            {"verification_id": verification_id, "tenant_id": tenant_id},
+        ).mappings().one_or_none()
+
+        if source is None:
+            raise LookupError(f"Verification not found: {verification_id}")
+        if source["verification_status"] != "APPROVED":
+            return None
+        if source["decision"] not in {"ANSWER", "ASK"}:
+            return None
+        if source["conversation_state"] != "AUTOMATED":
+            return None
+        if source["outbound_mode"] == "DISABLED":
+            return None
+
+        body = (source["draft_reply"] or "").strip()
+        if not body:
+            return None
+
+        body_sha256 = _hash_body(body)
+        automatic = source["outbound_mode"] == "AUTO_LOW_RISK"
+        status = "APPROVED" if automatic else "PENDING_REVIEW"
+        requires_review = not automatic
+        approved_by = "system:auto-low-risk" if automatic else None
+
+        row = connection.execute(
+            text(
+                """
+                INSERT INTO outbound_messages (
+                    tenant_id,
+                    conversation_id,
+                    in_reply_to_message_id,
+                    plan_id,
+                    verification_id,
+                    channel,
+                    recipient,
+                    body_text,
+                    body_sha256,
+                    status,
+                    requires_review,
+                    approved_by,
+                    approved_at
+                )
+                VALUES (
+                    :tenant_id,
+                    :conversation_id,
+                    :message_id,
+                    :plan_id,
+                    :verification_id,
+                    'whatsapp',
+                    :recipient,
+                    :body_text,
+                    :body_sha256,
+                    :status,
+                    :requires_review,
+                    :approved_by,
+                    CASE WHEN :approved_by IS NULL THEN NULL ELSE now() END
+                )
+                ON CONFLICT (tenant_id, verification_id) DO NOTHING
+                RETURNING *
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "conversation_id": source["conversation_id"],
+                "message_id": source["message_id"],
+                "plan_id": source["plan_id"],
+                "verification_id": source["verification_id"],
+                "recipient": source["recipient"],
+                "body_text": body,
+                "body_sha256": body_sha256,
+                "status": status,
+                "requires_review": requires_review,
+                "approved_by": approved_by,
+            },
+        ).mappings().one_or_none()
+
+        created = row is not None
+        if row is None:
+            row = connection.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM outbound_messages
+                    WHERE tenant_id = :tenant_id
+                      AND verification_id = :verification_id
+                    """
+                ),
+                {"tenant_id": tenant_id, "verification_id": verification_id},
+            ).mappings().one()
+
+        if created:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO audit_events (
+                        tenant_id,
+                        conversation_id,
+                        event_type,
+                        decision,
+                        payload
+                    )
+                    VALUES (
+                        :tenant_id,
+                        :conversation_id,
+                        'OUTBOUND_DRAFT_CREATED',
+                        :decision,
+                        CAST(:payload AS jsonb)
+                    )
+                    """
+                ),
+                {
+                    "tenant_id": tenant_id,
+                    "conversation_id": row["conversation_id"],
+                    "decision": row["status"],
+                    "payload": json.dumps(
+                        {
+                            "outbound_id": str(row["id"]),
+                            "plan_id": str(row["plan_id"]),
+                            "verification_id": str(row["verification_id"]),
+                            "requires_review": row["requires_review"],
+                            "body_sha256": row["body_sha256"],
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            )
+
+        return _row_to_outbound(row, display_name=source["display_name"])
+
+
+def list_outbound_messages(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    status_filter: str | None = None,
+    limit: int = 50,
+) -> list[StoredOutboundMessage]:
+    with engine.connect() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        if status_filter is None:
+            query = text(
+                """
+                SELECT om.*, ct.display_name
+                FROM outbound_messages om
+                JOIN conversations c ON c.id = om.conversation_id
+                JOIN contacts ct ON ct.id = c.contact_id
+                WHERE om.tenant_id = :tenant_id
+                ORDER BY om.created_at DESC
+                LIMIT :limit
+                """
+            )
+            params = {"tenant_id": tenant_id, "limit": limit}
+        else:
+            query = text(
+                """
+                SELECT om.*, ct.display_name
+                FROM outbound_messages om
+                JOIN conversations c ON c.id = om.conversation_id
+                JOIN contacts ct ON ct.id = c.contact_id
+                WHERE om.tenant_id = :tenant_id
+                  AND om.status = :status_filter
+                ORDER BY om.created_at DESC
+                LIMIT :limit
+                """
+            )
+            params = {
+                "tenant_id": tenant_id,
+                "status_filter": status_filter,
+                "limit": limit,
+            }
+
+        rows = connection.execute(query, params).mappings().all()
+        return [_row_to_outbound(row) for row in rows]
+
+
+def get_outbound_message(
+    *, engine: Engine, tenant_slug: str, outbound_id: UUID
+) -> StoredOutboundMessage:
+    with engine.connect() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        row = _load_outbound(connection, tenant_id, outbound_id)
+        if row is None:
+            raise LookupError(f"Outbound message not found: {outbound_id}")
+        return _row_to_outbound(row)
+
+
+def get_outbound_by_provider_message_id(
+    *, engine: Engine, tenant_slug: str, provider_message_id: str
+) -> StoredOutboundMessage | None:
+    with engine.connect() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        row = connection.execute(
+            text(
+                """
+                SELECT om.*, ct.display_name
+                FROM outbound_messages om
+                JOIN messages m ON m.id = om.in_reply_to_message_id
+                JOIN conversations c ON c.id = om.conversation_id
+                JOIN contacts ct ON ct.id = c.contact_id
+                WHERE om.tenant_id = :tenant_id
+                  AND m.provider_message_id = :provider_message_id
+                LIMIT 1
+                """
+            ),
+            {"tenant_id": tenant_id, "provider_message_id": provider_message_id},
+        ).mappings().one_or_none()
+        return None if row is None else _row_to_outbound(row)
+
+
+def approve_outbound_message(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    outbound_id: UUID,
+    operator_name: str,
+) -> StoredOutboundMessage:
+    with engine.begin() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        row = connection.execute(
+            text(
+                """
+                SELECT
+                    om.*,
+                    c.state AS conversation_state,
+                    rp.draft_reply AS current_draft_reply,
+                    rv.status AS verification_status,
+                    ct.display_name
+                FROM outbound_messages om
+                JOIN conversations c ON c.id = om.conversation_id
+                JOIN contacts ct ON ct.id = c.contact_id
+                JOIN response_plans rp ON rp.id = om.plan_id
+                JOIN response_verifications rv ON rv.id = om.verification_id
+                WHERE om.id = :outbound_id
+                  AND om.tenant_id = :tenant_id
+                FOR UPDATE OF om, c, rp, rv
+                """
+            ),
+            {"outbound_id": outbound_id, "tenant_id": tenant_id},
+        ).mappings().one_or_none()
+        if row is None:
+            raise LookupError(f"Outbound message not found: {outbound_id}")
+        if row["status"] == "APPROVED":
+            return _row_to_outbound(row)
+        if row["status"] != "PENDING_REVIEW":
+            raise OutboxTransitionError(
+                f"Only PENDING_REVIEW messages can be approved; current status is {row['status']}"
+            )
+        if row["conversation_state"] != "AUTOMATED":
+            raise OutboxTransitionError(
+                "The conversation is no longer automated; the draft cannot be approved"
+            )
+        if row["verification_status"] != "APPROVED":
+            raise OutboxTransitionError("The response verification is no longer approved")
+
+        current_body = (row["current_draft_reply"] or "").strip()
+        if not current_body or _hash_body(current_body) != row["body_sha256"]:
+            raise OutboxTransitionError(
+                "The response plan changed after verification; it must be verified again"
+            )
+
+        updated = connection.execute(
+            text(
+                """
+                UPDATE outbound_messages
+                SET status = 'APPROVED',
+                    approved_by = :operator_name,
+                    approved_at = now(),
+                    updated_at = now()
+                WHERE id = :outbound_id
+                RETURNING *
+                """
+            ),
+            {"operator_name": operator_name, "outbound_id": outbound_id},
+        ).mappings().one()
+        _audit_transition(
+            connection=connection,
+            tenant_id=tenant_id,
+            conversation_id=updated["conversation_id"],
+            outbound_id=outbound_id,
+            event_type="OUTBOUND_APPROVED",
+            decision="APPROVED",
+            actor=operator_name,
+            note=None,
+        )
+        return _row_to_outbound(updated, display_name=row["display_name"])
+
+
+def reject_outbound_message(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    outbound_id: UUID,
+    operator_name: str,
+    reason: str,
+) -> StoredOutboundMessage:
+    with engine.begin() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        row = _load_outbound(connection, tenant_id, outbound_id, for_update=True)
+        if row is None:
+            raise LookupError(f"Outbound message not found: {outbound_id}")
+        if row["status"] == "REJECTED":
+            return _row_to_outbound(row)
+        if row["status"] != "PENDING_REVIEW":
+            raise OutboxTransitionError(
+                f"Only PENDING_REVIEW messages can be rejected; current status is {row['status']}"
+            )
+
+        updated = connection.execute(
+            text(
+                """
+                UPDATE outbound_messages
+                SET status = 'REJECTED',
+                    rejected_by = :operator_name,
+                    rejected_at = now(),
+                    rejection_reason = :reason,
+                    updated_at = now()
+                WHERE id = :outbound_id
+                RETURNING *
+                """
+            ),
+            {
+                "operator_name": operator_name,
+                "reason": reason,
+                "outbound_id": outbound_id,
+            },
+        ).mappings().one()
+        _audit_transition(
+            connection=connection,
+            tenant_id=tenant_id,
+            conversation_id=updated["conversation_id"],
+            outbound_id=outbound_id,
+            event_type="OUTBOUND_REJECTED",
+            decision="REJECTED",
+            actor=operator_name,
+            note=reason,
+        )
+        return _row_to_outbound(updated, display_name=row["display_name"])
+
+
+def _load_outbound(
+    connection: Connection,
+    tenant_id: UUID,
+    outbound_id: UUID,
+    *,
+    for_update: bool = False,
+) -> Any:
+    suffix = " FOR UPDATE OF om" if for_update else ""
+    return connection.execute(
+        text(
+            """
+            SELECT om.*, ct.display_name
+            FROM outbound_messages om
+            JOIN conversations c ON c.id = om.conversation_id
+            JOIN contacts ct ON ct.id = c.contact_id
+            WHERE om.id = :outbound_id
+              AND om.tenant_id = :tenant_id
+            """ + suffix
+        ),
+        {"outbound_id": outbound_id, "tenant_id": tenant_id},
+    ).mappings().one_or_none()
+
+
+def _audit_transition(
+    *,
+    connection: Connection,
+    tenant_id: UUID,
+    conversation_id: UUID,
+    outbound_id: UUID,
+    event_type: str,
+    decision: str,
+    actor: str,
+    note: str | None,
+) -> None:
+    connection.execute(
+        text(
+            """
+            INSERT INTO audit_events (
+                tenant_id,
+                conversation_id,
+                event_type,
+                decision,
+                payload
+            )
+            VALUES (
+                :tenant_id,
+                :conversation_id,
+                :event_type,
+                :decision,
+                CAST(:payload AS jsonb)
+            )
+            """
+        ),
+        {
+            "tenant_id": tenant_id,
+            "conversation_id": conversation_id,
+            "event_type": event_type,
+            "decision": decision,
+            "payload": json.dumps(
+                {
+                    "outbound_id": str(outbound_id),
+                    "actor": actor,
+                    "note": note,
+                },
+                ensure_ascii=False,
+            ),
+        },
+    )
+
+
+def _row_to_outbound(
+    row: Any, *, display_name: str | None = None
+) -> StoredOutboundMessage:
+    return StoredOutboundMessage(
+        outbound_id=row["id"],
+        conversation_id=row["conversation_id"],
+        in_reply_to_message_id=row["in_reply_to_message_id"],
+        plan_id=row["plan_id"],
+        verification_id=row["verification_id"],
+        channel=row["channel"],
+        recipient=row["recipient"],
+        display_name=display_name if display_name is not None else row.get("display_name"),
+        body_text=row["body_text"],
+        body_sha256=row["body_sha256"],
+        status=row["status"],
+        requires_review=row["requires_review"],
+        approved_by=row["approved_by"],
+        approved_at=row["approved_at"],
+        rejected_by=row["rejected_by"],
+        rejected_at=row["rejected_at"],
+        rejection_reason=row["rejection_reason"],
+        provider_message_id=row["provider_message_id"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def _hash_body(body: str) -> str:
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _get_active_tenant_id(connection: Connection, tenant_slug: str) -> UUID:
+    tenant_id = connection.execute(
+        text("SELECT id FROM tenants WHERE slug = :slug AND status = 'active'"),
+        {"slug": tenant_slug},
+    ).scalar_one_or_none()
+    if tenant_id is None:
+        raise LookupError(f"Active tenant not found: {tenant_slug}")
+    return tenant_id

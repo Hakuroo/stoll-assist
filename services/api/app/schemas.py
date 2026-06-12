@@ -276,3 +276,70 @@ class ResponseVerificationResponse(BaseModel):
             unsupported_claims=verification.unsupported_claims,
             verifier_version=verification.verifier_version,
         )
+
+
+class OutboundStatus(StrEnum):
+    PENDING_REVIEW = "PENDING_REVIEW"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    QUEUED = "QUEUED"
+    SENT = "SENT"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class OutboundApprovalRequest(BaseModel):
+    operator_name: str = Field(min_length=2, max_length=120)
+
+
+class OutboundRejectionRequest(BaseModel):
+    operator_name: str = Field(min_length=2, max_length=120)
+    reason: str = Field(min_length=3, max_length=2000)
+
+
+class OutboundMessageResponse(BaseModel):
+    outbound_id: UUID
+    conversation_id: UUID
+    in_reply_to_message_id: UUID
+    plan_id: UUID
+    verification_id: UUID
+    channel: str
+    recipient: str
+    display_name: str | None
+    body_text: str
+    body_sha256: str
+    status: OutboundStatus
+    requires_review: bool
+    approved_by: str | None
+    approved_at: datetime | None
+    rejected_by: str | None
+    rejected_at: datetime | None
+    rejection_reason: str | None
+    provider_message_id: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_outbound(cls, item: Any) -> "OutboundMessageResponse":
+        return cls(
+            outbound_id=item.outbound_id,
+            conversation_id=item.conversation_id,
+            in_reply_to_message_id=item.in_reply_to_message_id,
+            plan_id=item.plan_id,
+            verification_id=item.verification_id,
+            channel=item.channel,
+            recipient=item.recipient,
+            display_name=item.display_name,
+            body_text=item.body_text,
+            body_sha256=item.body_sha256,
+            status=item.status,
+            requires_review=item.requires_review,
+            approved_by=item.approved_by,
+            approved_at=item.approved_at,
+            rejected_by=item.rejected_by,
+            rejected_at=item.rejected_at,
+            rejection_reason=item.rejection_reason,
+            provider_message_id=item.provider_message_id,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )

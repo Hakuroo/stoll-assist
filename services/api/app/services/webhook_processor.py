@@ -8,6 +8,7 @@ from app.normalization import normalize_whatsapp_messages
 from app.repositories.messages import persist_inbound_messages_with_context
 from app.repositories.webhook_events import complete_webhook_event
 from app.services.conversation_state import request_handoff
+from app.services.outbound_pipeline import stage_verified_response
 from app.services.policy_service import evaluate_and_apply_policy
 from app.services.response_planner import plan_and_record_response
 from app.services.response_verifier import verify_and_record_response
@@ -22,6 +23,7 @@ class ProcessingResult:
     response_plans: int = 0
     response_verifications: int = 0
     rejected_drafts: int = 0
+    outbound_drafts: int = 0
 
 
 def process_whatsapp_webhook(
@@ -44,6 +46,7 @@ def process_whatsapp_webhook(
         response_plans = 0
         response_verifications = 0
         rejected_drafts = 0
+        outbound_drafts = 0
 
         for message in persisted:
             result = evaluate_and_apply_policy(
@@ -81,6 +84,15 @@ def process_whatsapp_webhook(
                     summary="El borrador automático no pudo validarse contra el conocimiento aprobado.",
                 )
 
+            if verification.status == "APPROVED":
+                outbound = stage_verified_response(
+                    engine=engine,
+                    tenant_slug=tenant_slug,
+                    verification=verification,
+                )
+                if outbound is not None:
+                    outbound_drafts += 1
+
         terminal_status = "PROCESSED" if normalized else "IGNORED"
         complete_webhook_event(
             engine=engine,
@@ -94,6 +106,7 @@ def process_whatsapp_webhook(
             response_plans=response_plans,
             response_verifications=response_verifications,
             rejected_drafts=rejected_drafts,
+            outbound_drafts=outbound_drafts,
         )
     except Exception as exc:
         complete_webhook_event(
