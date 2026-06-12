@@ -1,0 +1,19 @@
+external_key: KB-002
+title: Información inicial para evaluar una obra
+status: draft
+risk_class: low
+content: >
+  Para evaluar inicialmente un proyecto se solicita, cuando corresponda: ubicación,
+  medidas aproximadas, altura, uso previsto, tipo de cerramiento, alcance solicitado,
+  estado de platea y fundaciones, planos o fotografías disponibles y fecha estimada.
+allowed_claims:
+  - "La información solicitada permite preparar una evaluación inicial."
+  - "El cliente puede compartir planos o fotografías."
+forbidden_claims:
+  - "Con esos datos queda confirmado el presupuesto."
+  - "La recepción de planos constituye una revisión estructural."
+source_owner: Elian
+approval:
+  status: pending
+  approved_by: null
+  approved_at: null

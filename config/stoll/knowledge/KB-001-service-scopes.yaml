@@ -1,0 +1,20 @@
+external_key: KB-001
+title: Modalidades generales de contratación
+status: draft
+risk_class: low
+content: >
+  Grupo Stöll evalúa proyectos con distintos alcances: provisión de estructura metálica;
+  estructura y montaje; estructura con cubierta y cerramientos; y soluciones integrales o
+  llave en mano sujetas a evaluación técnica, comercial y de ubicación.
+allowed_claims:
+  - "Se pueden evaluar distintos alcances de contratación."
+  - "La modalidad llave en mano está sujeta a evaluación."
+forbidden_claims:
+  - "Todos los proyectos se aceptan llave en mano."
+  - "Existe un precio estándar por metro cuadrado."
+  - "La empresa puede comenzar inmediatamente."
+source_owner: Elian
+approval:
+  status: pending
+  approved_by: null
+  approved_at: null

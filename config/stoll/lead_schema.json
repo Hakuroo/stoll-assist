@@ -1,0 +1,114 @@
+{
+  "version": "0.1",
+  "fields": [
+    {
+      "key": "full_name",
+      "type": "string",
+      "required": false
+    },
+    {
+      "key": "company",
+      "type": "string",
+      "required": false
+    },
+    {
+      "key": "project_location",
+      "type": "string",
+      "required": true
+    },
+    {
+      "key": "project_type",
+      "type": "enum",
+      "values": [
+        "galpon",
+        "tinglado",
+        "estructura",
+        "otro"
+      ],
+      "required": true
+    },
+    {
+      "key": "intended_use",
+      "type": "string",
+      "required": true
+    },
+    {
+      "key": "length_m",
+      "type": "number",
+      "required": false
+    },
+    {
+      "key": "width_m",
+      "type": "number",
+      "required": false
+    },
+    {
+      "key": "height_m",
+      "type": "number",
+      "required": false
+    },
+    {
+      "key": "enclosure",
+      "type": "enum",
+      "values": [
+        "cerrado",
+        "semicubierto",
+        "tinglado",
+        "sin_definir"
+      ],
+      "required": false
+    },
+    {
+      "key": "scope",
+      "type": "enum",
+      "values": [
+        "solo_estructura",
+        "estructura_y_montaje",
+        "cubierta_y_cerramientos",
+        "llave_en_mano",
+        "sin_definir"
+      ],
+      "required": false
+    },
+    {
+      "key": "slab_status",
+      "type": "enum",
+      "values": [
+        "existente",
+        "a_realizar",
+        "sin_definir"
+      ],
+      "required": false
+    },
+    {
+      "key": "foundation_status",
+      "type": "enum",
+      "values": [
+        "existentes",
+        "a_realizar",
+        "sin_definir"
+      ],
+      "required": false
+    },
+    {
+      "key": "has_plans",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "key": "has_photos",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "key": "desired_date",
+      "type": "string",
+      "required": false
+    },
+    {
+      "key": "notes",
+      "type": "string",
+      "required": false
+    }
+  ]
+}
