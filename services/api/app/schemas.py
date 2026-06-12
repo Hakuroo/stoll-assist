@@ -216,3 +216,38 @@ class KnowledgeSearchHitResponse(BaseModel):
 class KnowledgeSearchResponse(BaseModel):
     query: str
     hits: list[KnowledgeSearchHitResponse] = Field(default_factory=list)
+
+
+class ResponsePlanPreviewRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    conversation_state: ConversationState = ConversationState.AUTOMATED
+
+
+class ResponsePlanResponse(BaseModel):
+    decision: Decision
+    reason_code: str
+    risk_level: str = Field(pattern="^(low|medium|high)$")
+    policy_rule_key: str | None
+    knowledge_item_ids: list[str] = Field(default_factory=list)
+    knowledge_keys: list[str] = Field(default_factory=list)
+    allowed_claims: list[str] = Field(default_factory=list)
+    forbidden_claims: list[str] = Field(default_factory=list)
+    reply_goal: str
+    draft_reply: str | None
+    planner_version: str
+
+    @classmethod
+    def from_plan(cls, plan: Any) -> "ResponsePlanResponse":
+        return cls(
+            decision=plan.decision,
+            reason_code=plan.reason_code,
+            risk_level=plan.risk_level,
+            policy_rule_key=plan.policy_rule_key,
+            knowledge_item_ids=plan.knowledge_item_ids,
+            knowledge_keys=plan.knowledge_keys,
+            allowed_claims=plan.allowed_claims,
+            forbidden_claims=plan.forbidden_claims,
+            reply_goal=plan.reply_goal,
+            draft_reply=plan.draft_reply,
+            planner_version=plan.planner_version,
+        )
