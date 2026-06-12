@@ -178,3 +178,24 @@ Antes de habilitar una respuesta automática, el sistema verifica que:
 - una solicitud de datos sea breve y contenga preguntas.
 
 Los resultados quedan registrados en `response_verifications`. Un borrador rechazado deriva la conversación a una persona.
+
+## Version 0.10 — bandeja de salida y aprobación humana
+
+Las respuestas verificadas ya no quedan como texto suelto: se transforman en registros de
+`outbound_messages`. Para Grupo Stöll el modo predeterminado es `REVIEW_REQUIRED`, por lo
+que cada respuesta segura queda en `PENDING_REVIEW` hasta que un operador la aprueba o
+rechaza.
+
+Controles incorporados:
+
+- solo se crea una salida para planes `ANSWER` o `ASK` con verificación `APPROVED`;
+- la conversación debe continuar en estado `AUTOMATED`;
+- la aprobación comprueba que el borrador no haya cambiado desde la verificación;
+- aprobar o rechazar deja un evento de auditoría;
+- esta versión no envía mensajes reales a WhatsApp.
+
+Prueba local:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-outbox-review.ps1
+```
