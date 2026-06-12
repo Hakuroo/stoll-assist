@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -16,6 +17,14 @@ class StoredWebhookEvent:
 class WebhookClaim:
     claimed: bool
     status: str
+
+
+@dataclass(frozen=True)
+class WebhookForProcessing:
+    event_id: UUID
+    tenant_slug: str
+    payload: dict[str, Any]
+    attempt_count: int
 
 
 def store_webhook_event(
@@ -66,7 +75,7 @@ def store_webhook_event(
                 "provider": provider,
                 "provider_event_id": provider_event_id,
                 "event_kind": event_kind,
-                "payload": __import__("json").dumps(payload, ensure_ascii=False),
+                "payload": json.dumps(payload, ensure_ascii=False),
             },
         ).mappings().one_or_none()
 
@@ -101,6 +110,34 @@ def store_webhook_event(
         )
 
 
+def mark_webhook_queued(*, engine: Engine, event_id: UUID) -> WebhookClaim:
+    with engine.begin() as connection:
+        queued_status = connection.execute(
+            text(
+                """
+                UPDATE webhook_events
+                SET status = 'QUEUED',
+                    queued_at = now(),
+                    processed_at = NULL,
+                    error_message = NULL
+                WHERE id = :event_id
+                  AND status IN ('RECEIVED', 'FAILED')
+                RETURNING status
+                """
+            ),
+            {"event_id": event_id},
+        ).scalar_one_or_none()
+
+        if queued_status is not None:
+            return WebhookClaim(claimed=True, status=queued_status)
+
+        current_status = connection.execute(
+            text("SELECT status FROM webhook_events WHERE id = :event_id"),
+            {"event_id": event_id},
+        ).scalar_one()
+        return WebhookClaim(claimed=False, status=current_status)
+
+
 def claim_webhook_event(*, engine: Engine, event_id: UUID) -> WebhookClaim:
     with engine.begin() as connection:
         claimed_status = connection.execute(
@@ -108,9 +145,11 @@ def claim_webhook_event(*, engine: Engine, event_id: UUID) -> WebhookClaim:
                 """
                 UPDATE webhook_events
                 SET status = 'PROCESSING',
+                    attempt_count = attempt_count + 1,
+                    last_attempt_at = now(),
                     error_message = NULL
                 WHERE id = :event_id
-                  AND status IN ('RECEIVED', 'FAILED')
+                  AND status = 'QUEUED'
                 RETURNING status
                 """
             ),
@@ -124,8 +163,59 @@ def claim_webhook_event(*, engine: Engine, event_id: UUID) -> WebhookClaim:
             text("SELECT status FROM webhook_events WHERE id = :event_id"),
             {"event_id": event_id},
         ).scalar_one()
-
         return WebhookClaim(claimed=False, status=current_status)
+
+
+def get_webhook_event_for_processing(
+    *, engine: Engine, event_id: UUID
+) -> WebhookForProcessing:
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT we.id, t.slug AS tenant_slug, we.payload, we.attempt_count
+                FROM webhook_events we
+                JOIN tenants t ON t.id = we.tenant_id
+                WHERE we.id = :event_id
+                """
+            ),
+            {"event_id": event_id},
+        ).mappings().one_or_none()
+
+    if row is None:
+        raise LookupError(f"Webhook event not found: {event_id}")
+
+    payload = row["payload"]
+    if not isinstance(payload, dict):
+        raise TypeError(f"Webhook payload is not a JSON object: {event_id}")
+
+    return WebhookForProcessing(
+        event_id=row["id"],
+        tenant_slug=row["tenant_slug"],
+        payload=payload,
+        attempt_count=row["attempt_count"],
+    )
+
+
+def requeue_failed_webhook_event(*, engine: Engine, event_id: UUID) -> bool:
+    with engine.begin() as connection:
+        return (
+            connection.execute(
+                text(
+                    """
+                    UPDATE webhook_events
+                    SET status = 'QUEUED',
+                        queued_at = now(),
+                        processed_at = NULL
+                    WHERE id = :event_id
+                      AND status = 'FAILED'
+                    RETURNING id
+                    """
+                ),
+                {"event_id": event_id},
+            ).scalar_one_or_none()
+            is not None
+        )
 
 
 def complete_webhook_event(

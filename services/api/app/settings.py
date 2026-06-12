@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     app_name: str = "stoll-assist"
     database_url: str
     redis_url: str
+    webhook_queue_name: str = "stoll:webhooks"
+    worker_block_timeout_seconds: int = 5
 
     meta_verify_token: str
     meta_app_secret: str
