@@ -11,6 +11,7 @@ from app.routers.conversations import router as conversations_router
 from app.routers.knowledge import router as knowledge_router
 from app.routers.policies import router as policies_router
 from app.routers.planner import router as planner_router
+from app.routers.verifier import router as verifier_router
 from app.repositories.webhook_events import (
     complete_webhook_event,
     mark_webhook_queued,
@@ -25,7 +26,7 @@ settings = get_settings()
 
 app = FastAPI(
     title="Stöll Assist API",
-    version="0.8.0",
+    version="0.9.0",
     description="Webhook, policy and handoff core for a multi-tenant WhatsApp assistant.",
 )
 
@@ -33,6 +34,7 @@ app.include_router(conversations_router)
 app.include_router(knowledge_router)
 app.include_router(policies_router)
 app.include_router(planner_router)
+app.include_router(verifier_router)
 
 
 @app.get("/health")

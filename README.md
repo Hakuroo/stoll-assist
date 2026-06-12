@@ -164,3 +164,17 @@ It stores a response plan for each inbound message with one of four decisions:
 `ANSWER`, `ASK`, `HANDOFF`, or `IGNORE`. Version 0.8 does not send WhatsApp
 messages. Its draft is an auditable intermediate artifact for later generation and
 verification.
+
+## Version 0.9 — verificación de borradores
+
+Antes de habilitar una respuesta automática, el sistema verifica que:
+
+- exista un borrador;
+- no exceda el límite de longitud;
+- no contenga precios, garantías o afirmaciones técnicas restringidas;
+- no reproduzca afirmaciones explícitamente prohibidas;
+- una respuesta informativa esté respaldada por conocimiento publicado;
+- no introduzca números ausentes de las fuentes;
+- una solicitud de datos sea breve y contenga preguntas.
+
+Los resultados quedan registrados en `response_verifications`. Un borrador rechazado deriva la conversación a una persona.

@@ -53,12 +53,14 @@ def _process_event(event_id: UUID) -> None:
             payload=event.payload,
         )
         logger.info(
-            "Completed event %s with status %s, %s normalized messages, %s policy handoffs and %s response plans",
+            "Completed event %s with status %s, %s normalized messages, %s policy handoffs, %s response plans, %s verifications and %s rejected drafts",
             event_id,
             result.status,
             result.normalized_messages,
             result.policy_handoffs,
             result.response_plans,
+            result.response_verifications,
+            result.rejected_drafts,
         )
     except Exception:
         logger.exception("Processing failed for event %s", event_id)
