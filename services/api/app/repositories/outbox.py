@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -91,6 +92,7 @@ def create_outbound_draft(
         status = "APPROVED" if automatic else "PENDING_REVIEW"
         requires_review = not automatic
         approved_by = "system:auto-low-risk" if automatic else None
+        approved_at = datetime.now(UTC) if automatic else None
 
         row = connection.execute(
             text(
@@ -123,7 +125,7 @@ def create_outbound_draft(
                     :status,
                     :requires_review,
                     :approved_by,
-                    CASE WHEN :approved_by IS NULL THEN NULL ELSE now() END
+                    :approved_at
                 )
                 ON CONFLICT (tenant_id, verification_id) DO NOTHING
                 RETURNING *
@@ -141,6 +143,7 @@ def create_outbound_draft(
                 "status": status,
                 "requires_review": requires_review,
                 "approved_by": approved_by,
+                "approved_at": approved_at,
             },
         ).mappings().one_or_none()
 
