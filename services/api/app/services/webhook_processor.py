@@ -39,6 +39,7 @@ def process_whatsapp_webhook(
             engine=engine,
             tenant_slug=tenant_slug,
             messages=normalized,
+            include_existing=True,
         )
 
         settings = get_settings()

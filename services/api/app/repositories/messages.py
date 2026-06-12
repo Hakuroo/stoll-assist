@@ -37,16 +37,22 @@ def persist_inbound_messages_with_context(
     engine: Engine,
     tenant_slug: str,
     messages: Sequence[NormalizedInboundMessage],
+    include_existing: bool = False,
 ) -> list[PersistedInboundMessage]:
     if not messages:
         return []
 
     persisted: list[PersistedInboundMessage] = []
+    seen_provider_ids: set[str] = set()
 
     with engine.begin() as connection:
         tenant_id = _get_active_tenant_id(connection, tenant_slug)
 
         for message in messages:
+            if message.provider_message_id in seen_provider_ids:
+                continue
+            seen_provider_ids.add(message.provider_message_id)
+
             contact_id = _upsert_contact(connection, tenant_id, message)
             conversation_id = _get_or_create_active_conversation(
                 connection,
@@ -96,6 +102,14 @@ def persist_inbound_messages_with_context(
             ).mappings().one_or_none()
 
             if inserted is None:
+                if include_existing:
+                    existing = _get_existing_inbound_message(
+                        connection,
+                        tenant_id,
+                        message.provider_message_id,
+                    )
+                    if existing is not None:
+                        persisted.append(existing)
                 continue
 
             persisted.append(
@@ -127,6 +141,39 @@ def persist_inbound_messages_with_context(
             )
 
     return persisted
+
+
+def _get_existing_inbound_message(
+    connection: Connection,
+    tenant_id: UUID,
+    provider_message_id: str,
+) -> PersistedInboundMessage | None:
+    row = connection.execute(
+        text(
+            """
+            SELECT id, conversation_id, provider_message_id, message_type, body_text
+            FROM messages
+            WHERE tenant_id = :tenant_id
+              AND provider_message_id = :provider_message_id
+              AND direction = 'INBOUND'
+            """
+        ),
+        {
+            "tenant_id": tenant_id,
+            "provider_message_id": provider_message_id,
+        },
+    ).mappings().one_or_none()
+
+    if row is None:
+        return None
+
+    return PersistedInboundMessage(
+        message_id=row["id"],
+        conversation_id=row["conversation_id"],
+        provider_message_id=row["provider_message_id"],
+        message_type=row["message_type"],
+        body_text=row["body_text"],
+    )
 
 
 def _get_active_tenant_id(connection: Connection, tenant_slug: str) -> UUID:
