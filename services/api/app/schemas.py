@@ -1,5 +1,6 @@
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -33,3 +34,5 @@ class AgentDecision(BaseModel):
 
 class WebhookAccepted(BaseModel):
     accepted: bool = True
+    duplicate: bool = False
+    event_id: UUID
