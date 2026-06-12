@@ -135,3 +135,18 @@ Local operator endpoints:
 GET  /operator/policies
 POST /operator/policies/preview
 ```
+
+## v0.7 — Base de conocimiento aprobada
+
+- Importa archivos YAML como borradores.
+- Nunca publica conocimiento automáticamente.
+- Versiona cambios después de una publicación.
+- Busca únicamente registros con estado `published`.
+- Conserva afirmaciones permitidas y prohibidas por fuente.
+- Audita cada búsqueda para facilitar evaluación y soporte.
+
+Prueba local:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-knowledge-base.ps1
+```

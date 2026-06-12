@@ -144,3 +144,75 @@ class PolicyRuleResponse(BaseModel):
     priority: int
     enabled: bool
     risk_level: str
+
+
+class KnowledgeImportResponse(BaseModel):
+    files: int
+    created: int
+    updated: int
+    unchanged: int
+
+
+class KnowledgePublishRequest(BaseModel):
+    approved_by: str = Field(min_length=2, max_length=120)
+    version: int | None = Field(default=None, ge=1)
+
+
+class KnowledgeItemResponse(BaseModel):
+    item_id: UUID
+    external_key: str
+    title: str
+    content: str
+    status: str
+    risk_class: str
+    version: int
+    source_path: str | None
+    allowed_claims: list[str] = Field(default_factory=list)
+    forbidden_claims: list[str] = Field(default_factory=list)
+    approved_by: str | None
+    approved_at: datetime | None
+    published_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_item(cls, item: Any) -> "KnowledgeItemResponse":
+        return cls(
+            item_id=item.item_id,
+            external_key=item.external_key,
+            title=item.title,
+            content=item.content,
+            status=item.status,
+            risk_class=item.risk_class,
+            version=item.version,
+            source_path=item.source_path,
+            allowed_claims=item.allowed_claims,
+            forbidden_claims=item.forbidden_claims,
+            approved_by=item.approved_by,
+            approved_at=item.approved_at,
+            published_at=item.published_at,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+
+
+class KnowledgeSearchRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=1000)
+    limit: int = Field(default=5, ge=1, le=10)
+
+
+class KnowledgeSearchHitResponse(BaseModel):
+    item_id: UUID
+    external_key: str
+    title: str
+    excerpt: str
+    risk_class: str
+    version: int
+    allowed_claims: list[str] = Field(default_factory=list)
+    forbidden_claims: list[str] = Field(default_factory=list)
+    score: float
+
+
+class KnowledgeSearchResponse(BaseModel):
+    query: str
+    hits: list[KnowledgeSearchHitResponse] = Field(default_factory=list)
