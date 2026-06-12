@@ -5,9 +5,10 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import get_engine
-from app.repositories.webhook_events import store_webhook_event
+from app.repositories.webhook_events import claim_webhook_event, store_webhook_event
 from app.schemas import WebhookAccepted
 from app.security import verify_meta_signature
+from app.services.webhook_processor import process_whatsapp_webhook
 from app.settings import get_settings
 from app.webhooks import extract_whatsapp_event_identity
 
@@ -15,7 +16,7 @@ settings = get_settings()
 
 app = FastAPI(
     title="Stöll Assist API",
-    version="0.2.0",
+    version="0.3.0",
     description="Webhook, policy and handoff core for a multi-tenant WhatsApp assistant.",
 )
 
@@ -55,14 +56,31 @@ async def receive_whatsapp_webhook(
         raise HTTPException(status_code=400, detail="Webhook payload must be a JSON object")
 
     provider_event_id, event_kind = extract_whatsapp_event_identity(payload, raw_body)
+    engine = get_engine()
 
     try:
         stored = store_webhook_event(
-            engine=get_engine(),
+            engine=engine,
             tenant_slug=settings.default_tenant_slug,
             provider="whatsapp",
             provider_event_id=provider_event_id,
             event_kind=event_kind,
+            payload=payload,
+        )
+        claim = claim_webhook_event(engine=engine, event_id=stored.event_id)
+
+        if not claim.claimed:
+            return WebhookAccepted(
+                event_id=stored.event_id,
+                duplicate=stored.duplicate,
+                event_status=claim.status,
+                normalized_messages=0,
+            )
+
+        processed = process_whatsapp_webhook(
+            engine=engine,
+            event_id=stored.event_id,
+            tenant_slug=settings.default_tenant_slug,
             payload=payload,
         )
     except LookupError as exc:
@@ -70,8 +88,19 @@ async def receive_whatsapp_webhook(
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Webhook could not be persisted",
+            detail="Webhook could not be persisted or normalized",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Webhook processing failed",
         ) from exc
 
-    # The next increment will enqueue the stored event for asynchronous processing.
-    return WebhookAccepted(event_id=stored.event_id, duplicate=stored.duplicate)
+    # Esta etapa procesa en línea para validar el dominio. En la siguiente versión
+    # el mismo procesador se ejecutará dentro de un worker y una cola durable.
+    return WebhookAccepted(
+        event_id=stored.event_id,
+        duplicate=stored.duplicate,
+        event_status=processed.status,
+        normalized_messages=processed.normalized_messages,
+    )
