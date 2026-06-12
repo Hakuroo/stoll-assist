@@ -59,3 +59,25 @@ Este repositorio es un **scaffold técnico**, no una aplicación terminada. La s
 - retrieval híbrido;
 - verificador de afirmaciones;
 - panel humano.
+
+## Incremento v0.2 — recepción durable de webhooks
+
+La API ahora:
+
+- valida la firma HMAC enviada por Meta;
+- valida que el cuerpo sea JSON;
+- crea una identidad estable para el evento;
+- guarda el payload completo en PostgreSQL;
+- detecta reintentos idénticos sin crear filas duplicadas.
+
+Aplicar migraciones:
+
+```powershell
+.\scripts\apply-migrations.ps1
+```
+
+Probar localmente con una firma válida:
+
+```powershell
+.\scripts\test-webhook.ps1
+```
