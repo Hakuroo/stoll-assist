@@ -213,3 +213,31 @@ Prueba local:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\test-outbox-review.ps1
 ```
+
+## Version 0.11 - redaccion asistida por IA
+
+La IA se usa solo como capa de redaccion. El planner sigue decidiendo si corresponde
+`ANSWER`, `ASK`, `HANDOFF` o `IGNORE`; las fuentes siguen siendo las knowledge keys ya
+seleccionadas; y cada borrador vuelve a pasar por el verifier antes de llegar a
+`outbound_messages`.
+
+La bandera `LLM_DRAFTING_ENABLED` queda en `false` por defecto. Con la bandera apagada,
+se conserva el borrador determinista del planner y no se llama a ningun proveedor. Con
+la bandera encendida, el proveedor genera una salida estructurada con `draft_reply`,
+`used_knowledge_keys`, `claims`, `should_handoff`, `reason_code` y `confidence`. Si hay
+timeout, rate limit, refusal, error o salida invalida, se registra el fallo en
+`response_generations` y se usa el fallback determinista cuando exista.
+
+Controles incorporados:
+
+- OpenAI se invoca mediante Responses API y Structured Outputs; no se habilitan tools ni
+  function calling;
+- el mensaje del cliente y el historial reciente viajan como datos no confiables, nunca
+  dentro de instrucciones de sistema;
+- el historial se limita antes de enviarlo al proveedor;
+- `used_knowledge_keys` debe pertenecer al conocimiento publicado del tenant actual;
+- cada `response_plan` reclama una unica `response_generation` con lease temporal antes
+  de llamar al proveedor, para evitar llamadas externas duplicadas entre workers;
+- `should_handoff=true` deriva la conversacion y no crea outbound;
+- ningun borrador se envia a WhatsApp en esta version;
+- aun aprobado, el outbound queda en `PENDING_REVIEW` por `REVIEW_REQUIRED`.

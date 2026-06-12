@@ -180,6 +180,39 @@ def get_plan_by_provider_message_id(
         return None if row is None else _row_to_plan(row)
 
 
+def update_response_plan_draft(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    plan_id: UUID,
+    draft_reply: str | None,
+) -> StoredResponsePlan:
+    with engine.begin() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        row = connection.execute(
+            text(
+                """
+                UPDATE response_plans
+                SET draft_reply = :draft_reply,
+                    updated_at = now()
+                WHERE tenant_id = :tenant_id
+                  AND id = :plan_id
+                RETURNING *
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "plan_id": plan_id,
+                "draft_reply": draft_reply,
+            },
+        ).mappings().one_or_none()
+
+        if row is None:
+            raise LookupError(f"Response plan not found: {plan_id}")
+
+        return _row_to_plan(row)
+
+
 def _row_to_plan(row: Any) -> StoredResponsePlan:
     return StoredResponsePlan(
         plan_id=row["id"],
