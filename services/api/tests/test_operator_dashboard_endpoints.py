@@ -115,6 +115,16 @@ def test_dashboard_conversation_detail_and_outbox_are_tenant_scoped(app_context)
         for source in review_item["knowledge_sources"]
     )
 
+    knowledge = client.get("/operator/knowledge")
+    assert knowledge.status_code == 200
+    knowledge_items = knowledge.json()
+    assert any(item["external_key"] == "KB-001" for item in knowledge_items)
+    assert any(item["external_key"] == "KB-002" for item in knowledge_items)
+
+    published_knowledge = client.get("/operator/knowledge?status=published")
+    assert published_knowledge.status_code == 200
+    assert all(item["status"] == "published" for item in published_knowledge.json())
+
 
 def _process_payload(engine, tenant_slug: str, payload: dict):
     stored = store_webhook_event(

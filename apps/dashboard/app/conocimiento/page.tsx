@@ -1,5 +1,5 @@
 import { apiGet, knowledgePath, type KnowledgeItem } from "../lib/api";
-import { formatDate } from "../lib/format";
+import { formatDate, stateLabel } from "../lib/format";
 import { EmptyState, ErrorState } from "../components/State";
 
 export default async function KnowledgePage() {
@@ -17,7 +17,7 @@ export default async function KnowledgePage() {
       {!result.ok ? (
         <ErrorState message={result.error} />
       ) : result.data.length === 0 ? (
-        <EmptyState title="No hay conocimiento cargado" detail="Importalo desde la API local." />
+        <EmptyState title="No hay conocimiento cargado" detail="Cargalo desde la API local." />
       ) : (
         <div className="grid">
           {result.data.map((item) => (
@@ -27,7 +27,7 @@ export default async function KnowledgePage() {
                   <div className="item-meta">
                     <span className="badge">{item.external_key}</span>
                     <span className={item.status === "published" ? "badge ok" : "badge"}>
-                      {item.status}
+                      {stateLabel(item.status)}
                     </span>
                     <span>v{item.version}</span>
                     <span>{formatDate(item.updated_at)}</span>

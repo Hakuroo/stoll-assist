@@ -33,7 +33,7 @@ export default async function ResponsesPage() {
                     <span>{item.display_name ?? item.recipient}</span>
                   </div>
                   <Link className="primary-text" href={`/conversaciones/${item.conversation_id}`}>
-                    Ver conversacion
+                    Ver conversación
                   </Link>
                 </div>
                 <div className="item-meta">
@@ -55,7 +55,7 @@ export default async function ResponsesPage() {
               </div>
 
               <section className="stack-item">
-                <h2 className="section-title">Fuentes y verificacion</h2>
+                <h2 className="section-title">Fuentes y verificación</h2>
                 <div className="button-row">
                   {item.knowledge_sources.map((source) => (
                     <span className="badge" key={`${source.external_key}-${source.version}`}>
@@ -63,12 +63,12 @@ export default async function ResponsesPage() {
                     </span>
                   ))}
                   <span className={`badge ${item.verification.status === "APPROVED" ? "ok" : "danger"}`}>
-                    {item.verification.status}
+                    {stateLabel(item.verification.status)}
                   </span>
                   <span className="badge">{item.verification.reason_code}</span>
                 </div>
                 <p className="muted small">
-                  Aprobar cambia el estado del borrador, pero no envia WhatsApp en esta version.
+                  Aprobar cambia el estado del borrador, pero no envía WhatsApp en esta versión.
                 </p>
               </section>
 

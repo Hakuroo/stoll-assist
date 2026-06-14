@@ -27,9 +27,9 @@ export default async function ConversationDetailPage({
     <>
       <header className="page-header">
         <div>
-          <h1 className="page-title">{conversation.display_name ?? "Conversacion"}</h1>
+          <h1 className="page-title">{conversation.display_name ?? "Conversación"}</h1>
           <p className="page-subtitle">
-            {conversation.phone_e164 ?? conversation.whatsapp_user_id} · {shortId(conversation.conversation_id)}
+            {conversation.phone_e164 ?? conversation.whatsapp_user_id} - {shortId(conversation.conversation_id)}
           </p>
         </div>
         <div className="button-row">
@@ -43,9 +43,9 @@ export default async function ConversationDetailPage({
           ) : null}
           {conversation.state !== "AUTOMATED" && conversation.state !== "CLOSED" ? (
             <form action={returnConversation.bind(null, conversation.conversation_id)}>
-              <button className="button" type="submit">
+              <button className="button" type="submit" aria-label="Devolver a automatización">
                 <RotateCcw size={16} />
-                Automatizar
+                Devolver
               </button>
             </form>
           ) : null}
@@ -72,7 +72,7 @@ export default async function ConversationDetailPage({
             ) : null}
           </div>
           <p className="muted">
-            Ultimo cambio: {conversation.last_state_reason ?? "sin motivo registrado"}
+            Último cambio: {conversation.last_state_reason ?? "sin motivo registrado"}
           </p>
         </div>
         <div className="panel panel-pad">
@@ -83,7 +83,7 @@ export default async function ConversationDetailPage({
             detail.handoffs.map((handoff) => (
               <div className="stack-item" key={handoff.handoff_id}>
                 <div className="item-meta">
-                  <span className="badge">{handoff.status}</span>
+                  <span className="badge">{stateLabel(handoff.status)}</span>
                   <span>{formatDate(handoff.created_at)}</span>
                 </div>
                 <strong>{handoff.reason_code}</strong>
@@ -120,7 +120,7 @@ export default async function ConversationDetailPage({
 
         <aside className="grid">
           <section className="panel panel-pad">
-            <h2 className="section-title">Ultimos planes</h2>
+            <h2 className="section-title">Últimos planes</h2>
             {detail.response_plans.length === 0 ? (
               <p className="muted">Sin planes.</p>
             ) : (
@@ -147,7 +147,7 @@ export default async function ConversationDetailPage({
                 <div className="stack-item" key={verification.verification_id}>
                   <div className="item-meta">
                     <span className={`badge ${verification.status === "APPROVED" ? "ok" : "danger"}`}>
-                      {verification.status}
+                      {stateLabel(verification.status)}
                     </span>
                     <span>{formatDate(verification.created_at)}</span>
                   </div>

@@ -3,8 +3,8 @@ import "./globals.css";
 import { Shell } from "./components/Shell";
 
 export const metadata: Metadata = {
-  title: "Stoll Assist",
-  description: "Panel local de operadores para Stoll Assist"
+  title: "Stöll Assist",
+  description: "Panel local de operadores para Stöll Assist"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

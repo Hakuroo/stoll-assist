@@ -12,7 +12,7 @@ import { EmptyState, ErrorState } from "../components/State";
 const filters: Array<{ value?: ConversationState; label: string }> = [
   { label: "Todas" },
   { value: "AUTOMATED", label: "Automatizadas" },
-  { value: "HUMAN_REQUIRED", label: "Requieren persona" },
+  { value: "HUMAN_REQUIRED", label: "Requieren atención" },
   { value: "HUMAN_ACTIVE", label: "Con operador" },
   { value: "CLOSED", label: "Cerradas" }
 ];
@@ -31,7 +31,7 @@ export default async function ConversationsPage({
       <header className="page-header">
         <div>
           <h1 className="page-title">Bandeja de conversaciones</h1>
-          <p className="page-subtitle">Atencion local de Grupo Stoll.</p>
+          <p className="page-subtitle">Atención local de Grupo Stöll.</p>
         </div>
       </header>
 
@@ -57,8 +57,8 @@ export default async function ConversationsPage({
             <thead>
               <tr>
                 <th>Contacto</th>
-                <th>Telefono</th>
-                <th>Ultimo mensaje</th>
+                <th>Teléfono</th>
+                <th>Último mensaje</th>
                 <th>Estado</th>
                 <th>Fecha</th>
               </tr>
@@ -76,7 +76,7 @@ export default async function ConversationsPage({
                     {conversation.requires_human ? (
                       <div className="item-meta">
                         <AlertTriangle size={14} />
-                        <span>Requiere seguimiento</span>
+                        <span>Requiere seguimiento humano</span>
                       </div>
                     ) : null}
                   </td>

@@ -112,6 +112,7 @@ input {
 .content {
   padding: 28px;
   max-width: 1440px;
+  min-width: 0;
   width: 100%;
 }
 
@@ -160,6 +161,7 @@ input {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
+  min-width: 0;
   box-shadow: var(--shadow);
 }
 
@@ -399,6 +401,10 @@ input {
   .grid.two {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .page-header > .button-row {
+    width: 100%;
   }
 
   .list-table {

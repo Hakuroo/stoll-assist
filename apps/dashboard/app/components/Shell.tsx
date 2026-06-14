@@ -14,8 +14,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="brand">
           <span className="brand-mark">S</span>
           <div>
-            <strong>Stoll Assist</strong>
-            <span>Grupo Stoll</span>
+            <strong>Stöll Assist</strong>
+            <span>Grupo Stöll</span>
           </div>
         </div>
         <nav className="nav-list" aria-label="Principal">
@@ -29,7 +29,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <p className="dev-note">Panel local sin autenticacion. No exponer publicamente.</p>
+        <p className="dev-note">Panel local sin autenticación. No exponer públicamente.</p>
       </aside>
       <main className="content">{children}</main>
     </div>

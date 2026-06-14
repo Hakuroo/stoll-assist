@@ -17,10 +17,21 @@ export function stateLabel(value: string): string {
     PENDING_REVIEW: "Pendiente",
     APPROVED: "Aprobada",
     REJECTED: "Rechazada",
+    QUEUED: "En cola",
+    SENT: "Enviada",
+    FAILED: "Fallida",
+    CANCELLED: "Cancelada",
     ANSWER: "Responder",
     ASK: "Preguntar",
     HANDOFF: "Derivar",
-    IGNORE: "Ignorar"
+    IGNORE: "Ignorar",
+    OPEN: "Abierto",
+    TAKEN: "Tomado",
+    RESOLVED: "Resuelto",
+    draft: "Borrador",
+    published: "Publicado",
+    archived: "Archivado",
+    SKIPPED: "Omitida"
   };
   return labels[value] ?? value;
 }
