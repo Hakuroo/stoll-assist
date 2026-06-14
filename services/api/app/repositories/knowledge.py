@@ -91,21 +91,28 @@ def import_knowledge_directory(
 def list_knowledge_items(
     *, engine: Engine, tenant_slug: str, status_filter: str | None = None
 ) -> list[KnowledgeItem]:
+    status_clause = ""
+    params: dict[str, Any] = {}
+    if status_filter is not None:
+        status_clause = "AND status = :status_filter"
+        params["status_filter"] = status_filter
+
     with engine.connect() as connection:
         tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        params["tenant_id"] = tenant_id
         rows = connection.execute(
             text(
-                """
+                f"""
                 SELECT id, external_key, title, content, status, risk_class, version,
                        source_path, checksum, allowed_claims, forbidden_claims,
                        approved_by, approved_at, published_at, created_at, updated_at
                 FROM knowledge_items
                 WHERE tenant_id = :tenant_id
-                  AND (:status_filter IS NULL OR status = :status_filter)
+                  {status_clause}
                 ORDER BY external_key, version DESC
                 """
             ),
-            {"tenant_id": tenant_id, "status_filter": status_filter},
+            params,
         ).mappings().all()
         return [_row_to_item(row) for row in rows]
 

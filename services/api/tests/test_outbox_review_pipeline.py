@@ -116,6 +116,7 @@ def test_webhook_pipeline_creates_pending_review_draft_and_approval_is_no_send(
     assert approved.provider_message_id is None
     assert _outbound_count(engine, message_id) == 1
     _assert_no_send_attempt(engine, approved.outbound_id)
+    assert _tenant_outbound_mode(engine, tenant_slug) == "REVIEW_REQUIRED"
 
 
 def test_webhook_pipeline_creates_pending_review_draft_and_rejection_is_no_send(
@@ -303,3 +304,11 @@ def _assert_no_send_attempt(engine, outbound_id) -> None:
     assert row["send_attempt_count"] == 0
     assert row["sent_at"] is None
     assert row["failed_at"] is None
+
+
+def _tenant_outbound_mode(engine, tenant_slug: str) -> str:
+    with engine.connect() as connection:
+        return connection.execute(
+            text("SELECT outbound_mode FROM tenants WHERE slug = :slug"),
+            {"slug": tenant_slug},
+        ).scalar_one()

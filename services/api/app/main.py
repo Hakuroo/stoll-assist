@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.database import get_engine
 from app.queue import enqueue_webhook_event
 from app.routers.conversations import router as conversations_router
+from app.routers.dashboard import router as dashboard_router
 from app.routers.knowledge import router as knowledge_router
 from app.routers.outbox import router as outbox_router
 from app.routers.policies import router as policies_router
@@ -32,6 +33,7 @@ app = FastAPI(
 )
 
 app.include_router(conversations_router)
+app.include_router(dashboard_router)
 app.include_router(knowledge_router)
 app.include_router(outbox_router)
 app.include_router(policies_router)

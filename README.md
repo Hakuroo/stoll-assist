@@ -61,6 +61,27 @@ No requiere `.env`: usa credenciales locales dummy y no conecta OpenAI ni WhatsA
 La imagen normal de `api` y `worker` se construye desde el target `production`, sin
 instalar dependencias de testing.
 
+## Panel local de operadores
+
+El panel web vive en `apps/dashboard` y usa Next.js + TypeScript. Consume la API
+FastAPI por HTTP; no accede a PostgreSQL directamente.
+
+Levantar API, worker y panel:
+
+```bash
+docker compose up --build api worker dashboard
+```
+
+Abrir:
+
+```text
+http://localhost:3000
+```
+
+El panel usa `grupo-stoll` como tenant local y mantiene los endpoints de operador sin
+autenticacion solo para desarrollo. No es apto para exposicion publica sin autenticacion,
+autorizacion y controles de red.
+
 ## Estado
 
 Este repositorio es un **scaffold técnico**, no una aplicación terminada. La siguiente etapa implementa:

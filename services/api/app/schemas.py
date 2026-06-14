@@ -343,3 +343,240 @@ class OutboundMessageResponse(BaseModel):
             created_at=item.created_at,
             updated_at=item.updated_at,
         )
+
+
+class DashboardConversationSummaryResponse(BaseModel):
+    conversation_id: UUID
+    display_name: str | None
+    whatsapp_user_id: str
+    phone_e164: str | None
+    state: ConversationState
+    assigned_operator: str | None
+    last_state_reason: str | None
+    last_message_at: datetime | None
+    last_message_body: str | None
+    last_message_direction: str | None
+    last_message_type: str | None
+    active_handoff_status: str | None
+    requires_human: bool
+    created_at: datetime
+
+    @classmethod
+    def from_item(cls, item: Any) -> "DashboardConversationSummaryResponse":
+        return cls(
+            conversation_id=item.conversation_id,
+            display_name=item.display_name,
+            whatsapp_user_id=item.whatsapp_user_id,
+            phone_e164=item.phone_e164,
+            state=item.state,
+            assigned_operator=item.assigned_operator,
+            last_state_reason=item.last_state_reason,
+            last_message_at=item.last_message_at,
+            last_message_body=item.last_message_body,
+            last_message_direction=item.last_message_direction,
+            last_message_type=item.last_message_type,
+            active_handoff_status=item.active_handoff_status,
+            requires_human=item.state in {"HUMAN_REQUIRED", "HUMAN_ACTIVE"},
+            created_at=item.created_at,
+        )
+
+
+class DashboardMessageResponse(BaseModel):
+    message_id: UUID
+    direction: str
+    message_type: str
+    body_text: str | None
+    created_at: datetime
+
+    @classmethod
+    def from_item(cls, item: Any) -> "DashboardMessageResponse":
+        return cls(
+            message_id=item.message_id,
+            direction=item.direction,
+            message_type=item.message_type,
+            body_text=item.body_text,
+            created_at=item.created_at,
+        )
+
+
+class DashboardResponsePlanResponse(BaseModel):
+    plan_id: UUID
+    message_id: UUID
+    decision: Decision
+    reason_code: str
+    risk_level: str
+    policy_rule_key: str | None
+    knowledge_keys: list[str] = Field(default_factory=list)
+    allowed_claims: list[str] = Field(default_factory=list)
+    forbidden_claims: list[str] = Field(default_factory=list)
+    reply_goal: str
+    draft_reply: str | None
+    planner_version: str
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_item(cls, item: Any) -> "DashboardResponsePlanResponse":
+        return cls(
+            plan_id=item.plan_id,
+            message_id=item.message_id,
+            decision=item.decision,
+            reason_code=item.reason_code,
+            risk_level=item.risk_level,
+            policy_rule_key=item.policy_rule_key,
+            knowledge_keys=item.knowledge_keys,
+            allowed_claims=item.allowed_claims,
+            forbidden_claims=item.forbidden_claims,
+            reply_goal=item.reply_goal,
+            draft_reply=item.draft_reply,
+            planner_version=item.planner_version,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+
+
+class DashboardVerificationResponse(BaseModel):
+    verification_id: UUID
+    plan_id: UUID
+    message_id: UUID
+    status: str
+    reason_code: str
+    checks: dict[str, Any] = Field(default_factory=dict)
+    unsupported_claims: list[str] = Field(default_factory=list)
+    verifier_version: str
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_item(cls, item: Any) -> "DashboardVerificationResponse":
+        return cls(
+            verification_id=item.verification_id,
+            plan_id=item.plan_id,
+            message_id=item.message_id,
+            status=item.status,
+            reason_code=item.reason_code,
+            checks=item.checks,
+            unsupported_claims=item.unsupported_claims,
+            verifier_version=item.verifier_version,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+
+
+class DashboardHandoffResponse(BaseModel):
+    handoff_id: UUID
+    reason_code: str
+    summary: str | None
+    status: str
+    requested_by: str | None
+    taken_by: str | None
+    resolved_by: str | None
+    resolution_note: str | None
+    created_at: datetime
+    taken_at: datetime | None
+    resolved_at: datetime | None
+
+    @classmethod
+    def from_item(cls, item: Any) -> "DashboardHandoffResponse":
+        return cls(
+            handoff_id=item.handoff_id,
+            reason_code=item.reason_code,
+            summary=item.summary,
+            status=item.status,
+            requested_by=item.requested_by,
+            taken_by=item.taken_by,
+            resolved_by=item.resolved_by,
+            resolution_note=item.resolution_note,
+            created_at=item.created_at,
+            taken_at=item.taken_at,
+            resolved_at=item.resolved_at,
+        )
+
+
+class DashboardConversationDetailResponse(BaseModel):
+    conversation: DashboardConversationSummaryResponse
+    messages: list[DashboardMessageResponse]
+    response_plans: list[DashboardResponsePlanResponse]
+    verifications: list[DashboardVerificationResponse]
+    handoffs: list[DashboardHandoffResponse]
+
+    @classmethod
+    def from_detail(cls, detail: Any) -> "DashboardConversationDetailResponse":
+        return cls(
+            conversation=DashboardConversationSummaryResponse.from_item(detail.summary),
+            messages=[DashboardMessageResponse.from_item(item) for item in detail.messages],
+            response_plans=[
+                DashboardResponsePlanResponse.from_item(item)
+                for item in detail.response_plans
+            ],
+            verifications=[
+                DashboardVerificationResponse.from_item(item)
+                for item in detail.verifications
+            ],
+            handoffs=[DashboardHandoffResponse.from_item(item) for item in detail.handoffs],
+        )
+
+
+class DashboardKnowledgeSourceResponse(BaseModel):
+    external_key: str
+    title: str
+    version: int
+    status: str
+
+    @classmethod
+    def from_item(cls, item: Any) -> "DashboardKnowledgeSourceResponse":
+        return cls(
+            external_key=item.external_key,
+            title=item.title,
+            version=item.version,
+            status=item.status,
+        )
+
+
+class DashboardOutboxReviewItemResponse(BaseModel):
+    outbound_id: UUID
+    conversation_id: UUID
+    in_reply_to_message_id: UUID
+    plan_id: UUID
+    verification_id: UUID
+    recipient: str
+    display_name: str | None
+    body_text: str
+    status: OutboundStatus
+    requires_review: bool
+    provider_message_id: str | None
+    send_attempt_count: int
+    created_at: datetime
+    updated_at: datetime
+    customer_message_text: str | None
+    customer_message_type: str
+    plan: DashboardResponsePlanResponse
+    verification: DashboardVerificationResponse
+    knowledge_sources: list[DashboardKnowledgeSourceResponse]
+
+    @classmethod
+    def from_item(cls, item: Any) -> "DashboardOutboxReviewItemResponse":
+        return cls(
+            outbound_id=item.outbound_id,
+            conversation_id=item.conversation_id,
+            in_reply_to_message_id=item.in_reply_to_message_id,
+            plan_id=item.plan_id,
+            verification_id=item.verification_id,
+            recipient=item.recipient,
+            display_name=item.display_name,
+            body_text=item.body_text,
+            status=item.status,
+            requires_review=item.requires_review,
+            provider_message_id=item.provider_message_id,
+            send_attempt_count=item.send_attempt_count,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+            customer_message_text=item.customer_message_text,
+            customer_message_type=item.customer_message_type,
+            plan=DashboardResponsePlanResponse.from_item(item.plan),
+            verification=DashboardVerificationResponse.from_item(item.verification),
+            knowledge_sources=[
+                DashboardKnowledgeSourceResponse.from_item(source)
+                for source in item.knowledge_sources
+            ],
+        )
