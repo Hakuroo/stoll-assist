@@ -12,6 +12,7 @@ from app.repositories.outbox import get_outbound_by_provider_message_id
 from app.repositories.webhook_events import store_webhook_event
 from app.services.webhook_processor import process_whatsapp_webhook
 from app.settings import get_settings
+from auth_helpers import login, seed_user
 
 
 SAFE_QUESTION = "Que informacion necesitan para evaluar una obra?"
@@ -66,6 +67,9 @@ def app_context():
 def test_dashboard_conversation_detail_and_outbox_are_tenant_scoped(app_context):
     engine, tenant_slug = app_context
     client = TestClient(app)
+    email = f"dashboard-viewer-{uuid4()}@example.com"
+    seed_user(engine, tenant_slug=tenant_slug, email=email, role="VIEWER")
+    assert login(client, email=email, tenant_slug=tenant_slug).status_code == 200
     message_id = f"wamid.DASHBOARD-{uuid4()}"
     payload = _whatsapp_payload(message_id=message_id, text=SAFE_QUESTION)
 

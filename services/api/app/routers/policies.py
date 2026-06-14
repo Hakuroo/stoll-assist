@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.auth import OPERATE_ROLES, READ_ROLES, AuthContext, require_roles
 from app.database import get_engine
 from app.policy_engine import evaluate_text
 from app.repositories.policies import list_policy_rules
@@ -9,18 +10,17 @@ from app.schemas import (
     PolicyPreviewRequest,
     PolicyRuleResponse,
 )
-from app.settings import get_settings
-
 router = APIRouter(prefix="/operator/policies", tags=["operator-policies"])
-settings = get_settings()
 
 
 @router.get("", response_model=list[PolicyRuleResponse])
-def get_rules() -> list[PolicyRuleResponse]:
+def get_rules(
+    auth: AuthContext = Depends(require_roles(*READ_ROLES)),
+) -> list[PolicyRuleResponse]:
     try:
         rules = list_policy_rules(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             enabled_only=False,
         )
         return [
@@ -41,11 +41,14 @@ def get_rules() -> list[PolicyRuleResponse]:
 
 
 @router.post("/preview", response_model=PolicyDecisionResponse)
-def preview_policy(request: PolicyPreviewRequest) -> PolicyDecisionResponse:
+def preview_policy(
+    request: PolicyPreviewRequest,
+    auth: AuthContext = Depends(require_roles(*OPERATE_ROLES, csrf=True)),
+) -> PolicyDecisionResponse:
     try:
         result = evaluate_text(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             message_text=request.text,
         )
         return PolicyDecisionResponse(

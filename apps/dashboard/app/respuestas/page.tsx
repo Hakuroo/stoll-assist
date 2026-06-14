@@ -1,12 +1,20 @@
 import Link from "next/link";
 import { Check, Send, X } from "lucide-react";
 import { approveOutbound, rejectOutbound } from "../actions";
-import { apiGet, dashboardOutboxPath, type OutboxReviewItem } from "../lib/api";
+import {
+  apiGet,
+  canOperate,
+  dashboardOutboxPath,
+  getCurrentUser,
+  type OutboxReviewItem
+} from "../lib/api";
 import { formatDate, stateLabel } from "../lib/format";
 import { EmptyState, ErrorState } from "../components/State";
 
 export default async function ResponsesPage() {
+  const user = await getCurrentUser();
   const result = await apiGet<OutboxReviewItem[]>(dashboardOutboxPath());
+  const showActions = user ? canOperate(user.role) : false;
 
   return (
     <>
@@ -72,26 +80,28 @@ export default async function ResponsesPage() {
                 </p>
               </section>
 
-              <div className="button-row">
-                <form action={approveOutbound.bind(null, item.outbound_id)}>
-                  <button className="button primary" type="submit">
-                    <Check size={16} />
-                    Aprobar
-                  </button>
-                </form>
-                <form action={rejectOutbound.bind(null, item.outbound_id)} className="button-row">
-                  <input
-                    className="reject-input"
-                    name="reason"
-                    placeholder="Motivo de rechazo"
-                    minLength={3}
-                  />
-                  <button className="button danger" type="submit">
-                    <X size={16} />
-                    Rechazar
-                  </button>
-                </form>
-              </div>
+              {showActions ? (
+                <div className="button-row">
+                  <form action={approveOutbound.bind(null, item.outbound_id)}>
+                    <button className="button primary" type="submit">
+                      <Check size={16} />
+                      Aprobar
+                    </button>
+                  </form>
+                  <form action={rejectOutbound.bind(null, item.outbound_id)} className="button-row">
+                    <input
+                      className="reject-input"
+                      name="reason"
+                      placeholder="Motivo de rechazo"
+                      minLength={3}
+                    />
+                    <button className="button danger" type="submit">
+                      <X size={16} />
+                      Rechazar
+                    </button>
+                  </form>
+                </div>
+              ) : null}
             </article>
           ))}
         </div>

@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     agent_disclosure: str = (
         "Soy Agustina, asistente digital del equipo de Grupo Stöll."
     )
+    auth_session_cookie_name: str = "stoll_assist_session"
+    auth_csrf_cookie_name: str = "stoll_assist_csrf"
+    auth_session_ttl_minutes: int = 8 * 60
+    auth_cookie_secure: bool = True
+    auth_cookie_samesite: str = "lax"
+    auth_allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
 
 @lru_cache
