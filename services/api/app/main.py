@@ -7,12 +7,14 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import get_engine
 from app.queue import enqueue_webhook_event
+from app.routers.auth import router as auth_router
 from app.routers.conversations import router as conversations_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.knowledge import router as knowledge_router
 from app.routers.outbox import router as outbox_router
 from app.routers.policies import router as policies_router
 from app.routers.planner import router as planner_router
+from app.routers.users import router as users_router
 from app.routers.verifier import router as verifier_router
 from app.repositories.webhook_events import (
     complete_webhook_event,
@@ -34,10 +36,12 @@ app = FastAPI(
 
 app.include_router(conversations_router)
 app.include_router(dashboard_router)
+app.include_router(auth_router)
 app.include_router(knowledge_router)
 app.include_router(outbox_router)
 app.include_router(policies_router)
 app.include_router(planner_router)
+app.include_router(users_router)
 app.include_router(verifier_router)
 
 

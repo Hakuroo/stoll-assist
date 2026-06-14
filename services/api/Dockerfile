@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir ".[dev]"
 
 COPY tests ./tests
 
-CMD ["sh", "-c", "for migration in /app/migrations/*.sql; do [ -e \"$migration\" ] || { echo 'No migrations found'; exit 1; }; echo \"Applying $(basename \"$migration\")\"; psql -v ON_ERROR_STOP=1 -f \"$migration\"; done && python -m compileall app tests && python -m pytest -q"]
+CMD ["sh", "-c", "psql -v ON_ERROR_STOP=1 -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;' && psql -v ON_ERROR_STOP=1 -f /app/init.sql && for migration in /app/migrations/*.sql; do [ -e \"$migration\" ] || { echo 'No migrations found'; exit 1; }; echo \"Applying $(basename \"$migration\")\"; psql -v ON_ERROR_STOP=1 -f \"$migration\"; done && python -m compileall app tests && python -m pytest -q"]
 
 FROM base AS production
 

@@ -4,7 +4,13 @@ import {
   returnConversation,
   takeConversation
 } from "../../actions";
-import { apiGet, conversationDetailPath, type ConversationDetail } from "../../lib/api";
+import {
+  apiGet,
+  canOperate,
+  conversationDetailPath,
+  getCurrentUser,
+  type ConversationDetail
+} from "../../lib/api";
 import { formatDate, shortId, stateLabel } from "../../lib/format";
 import { EmptyState, ErrorState } from "../../components/State";
 
@@ -14,6 +20,7 @@ export default async function ConversationDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const user = await getCurrentUser();
   const result = await apiGet<ConversationDetail>(conversationDetailPath(id));
 
   if (!result.ok) {
@@ -22,6 +29,7 @@ export default async function ConversationDetailPage({
 
   const detail = result.data;
   const conversation = detail.conversation;
+  const showActions = user ? canOperate(user.role) : false;
 
   return (
     <>
@@ -32,7 +40,8 @@ export default async function ConversationDetailPage({
             {conversation.phone_e164 ?? conversation.whatsapp_user_id} - {shortId(conversation.conversation_id)}
           </p>
         </div>
-        <div className="button-row">
+        {showActions ? (
+          <div className="button-row">
           {conversation.state !== "HUMAN_ACTIVE" && conversation.state !== "CLOSED" ? (
             <form action={takeConversation.bind(null, conversation.conversation_id)}>
               <button className="button primary" type="submit">
@@ -57,7 +66,8 @@ export default async function ConversationDetailPage({
               </button>
             </form>
           ) : null}
-        </div>
+          </div>
+        ) : null}
       </header>
 
       <section className="grid two" style={{ marginBottom: 16 }}>

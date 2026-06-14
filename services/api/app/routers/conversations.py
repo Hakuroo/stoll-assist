@@ -1,8 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.auth import OPERATE_ROLES, READ_ROLES, AuthContext, require_roles
 from app.database import get_engine
 from app.repositories.conversations import InvalidConversationTransition
 from app.schemas import (
@@ -18,18 +19,18 @@ from app.services.conversation_state import (
     return_to_automation,
     take_conversation,
 )
-from app.settings import get_settings
-
 router = APIRouter(prefix="/operator/conversations", tags=["operator-conversations"])
-settings = get_settings()
 
 
 @router.get("/{conversation_id}", response_model=ConversationResponse)
-def get_conversation(conversation_id: UUID) -> ConversationResponse:
+def get_conversation(
+    conversation_id: UUID,
+    auth: AuthContext = Depends(require_roles(*READ_ROLES)),
+) -> ConversationResponse:
     try:
         snapshot = read_conversation(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             conversation_id=conversation_id,
         )
         return ConversationResponse.from_snapshot(snapshot)
@@ -44,14 +45,16 @@ def get_conversation(conversation_id: UUID) -> ConversationResponse:
     response_model=StateTransitionResponse,
 )
 def create_handoff(
-    conversation_id: UUID, request: HandoffRequest
+    conversation_id: UUID,
+    request: HandoffRequest,
+    auth: AuthContext = Depends(require_roles(*OPERATE_ROLES, csrf=True)),
 ) -> StateTransitionResponse:
     return _execute_transition(
         lambda: request_handoff(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             conversation_id=conversation_id,
-            requested_by=request.requested_by,
+            requested_by=auth.display_name,
             reason_code=request.reason_code,
             summary=request.summary,
         )
@@ -60,14 +63,16 @@ def create_handoff(
 
 @router.post("/{conversation_id}/take", response_model=StateTransitionResponse)
 def take(
-    conversation_id: UUID, request: OperatorActionRequest
+    conversation_id: UUID,
+    request: OperatorActionRequest,
+    auth: AuthContext = Depends(require_roles(*OPERATE_ROLES, csrf=True)),
 ) -> StateTransitionResponse:
     return _execute_transition(
         lambda: take_conversation(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             conversation_id=conversation_id,
-            operator_name=request.operator_name,
+            operator_name=auth.display_name,
             note=request.note,
         )
     )
@@ -78,14 +83,16 @@ def take(
     response_model=StateTransitionResponse,
 )
 def return_automation(
-    conversation_id: UUID, request: OperatorActionRequest
+    conversation_id: UUID,
+    request: OperatorActionRequest,
+    auth: AuthContext = Depends(require_roles(*OPERATE_ROLES, csrf=True)),
 ) -> StateTransitionResponse:
     return _execute_transition(
         lambda: return_to_automation(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             conversation_id=conversation_id,
-            operator_name=request.operator_name,
+            operator_name=auth.display_name,
             note=request.note,
         )
     )
@@ -93,14 +100,16 @@ def return_automation(
 
 @router.post("/{conversation_id}/close", response_model=StateTransitionResponse)
 def close(
-    conversation_id: UUID, request: OperatorActionRequest
+    conversation_id: UUID,
+    request: OperatorActionRequest,
+    auth: AuthContext = Depends(require_roles(*OPERATE_ROLES, csrf=True)),
 ) -> StateTransitionResponse:
     return _execute_transition(
         lambda: close_conversation(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             conversation_id=conversation_id,
-            operator_name=request.operator_name,
+            operator_name=auth.display_name,
             note=request.note,
         )
     )

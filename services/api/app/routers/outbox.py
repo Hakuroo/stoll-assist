@@ -1,8 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.auth import OPERATE_ROLES, READ_ROLES, AuthContext, require_roles
 from app.database import get_engine
 from app.repositories.outbox import (
     OutboxTransitionError,
@@ -18,21 +19,19 @@ from app.schemas import (
     OutboundRejectionRequest,
     OutboundStatus,
 )
-from app.settings import get_settings
-
 router = APIRouter(prefix="/operator/outbox", tags=["outbox-review"])
-settings = get_settings()
 
 
 @router.get("", response_model=list[OutboundMessageResponse])
 def list_messages(
     status_filter: OutboundStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=50, ge=1, le=200),
+    auth: AuthContext = Depends(require_roles(*READ_ROLES)),
 ) -> list[OutboundMessageResponse]:
     try:
         items = list_outbound_messages(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             status_filter=None if status_filter is None else status_filter.value,
             limit=limit,
         )
@@ -45,11 +44,14 @@ def list_messages(
     "/by-provider-message/{provider_message_id}",
     response_model=OutboundMessageResponse,
 )
-def by_provider_message(provider_message_id: str) -> OutboundMessageResponse:
+def by_provider_message(
+    provider_message_id: str,
+    auth: AuthContext = Depends(require_roles(*READ_ROLES)),
+) -> OutboundMessageResponse:
     try:
         item = get_outbound_by_provider_message_id(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             provider_message_id=provider_message_id,
         )
         if item is None:
@@ -62,11 +64,14 @@ def by_provider_message(provider_message_id: str) -> OutboundMessageResponse:
 
 
 @router.get("/{outbound_id}", response_model=OutboundMessageResponse)
-def get_message(outbound_id: UUID) -> OutboundMessageResponse:
+def get_message(
+    outbound_id: UUID,
+    auth: AuthContext = Depends(require_roles(*READ_ROLES)),
+) -> OutboundMessageResponse:
     try:
         item = get_outbound_message(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             outbound_id=outbound_id,
         )
         return OutboundMessageResponse.from_outbound(item)
@@ -80,13 +85,14 @@ def get_message(outbound_id: UUID) -> OutboundMessageResponse:
 def approve(
     outbound_id: UUID,
     request: OutboundApprovalRequest,
+    auth: AuthContext = Depends(require_roles(*OPERATE_ROLES, csrf=True)),
 ) -> OutboundMessageResponse:
     try:
         item = approve_outbound_message(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             outbound_id=outbound_id,
-            operator_name=request.operator_name,
+            operator_name=auth.display_name,
         )
         return OutboundMessageResponse.from_outbound(item)
     except LookupError as exc:
@@ -101,13 +107,14 @@ def approve(
 def reject(
     outbound_id: UUID,
     request: OutboundRejectionRequest,
+    auth: AuthContext = Depends(require_roles(*OPERATE_ROLES, csrf=True)),
 ) -> OutboundMessageResponse:
     try:
         item = reject_outbound_message(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             outbound_id=outbound_id,
-            operator_name=request.operator_name,
+            operator_name=auth.display_name,
             reason=request.reason,
         )
         return OutboundMessageResponse.from_outbound(item)

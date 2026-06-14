@@ -1,21 +1,22 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.auth import OPERATE_ROLES, AuthContext, require_roles
 from app.database import get_engine
 from app.schemas import ResponsePlanPreviewRequest, ResponsePlanResponse
 from app.services.response_planner import preview_response_plan
-from app.settings import get_settings
-
 router = APIRouter(prefix="/operator/planner", tags=["response-planner"])
-settings = get_settings()
 
 
 @router.post("/preview", response_model=ResponsePlanResponse)
-def preview_plan(request: ResponsePlanPreviewRequest) -> ResponsePlanResponse:
+def preview_plan(
+    request: ResponsePlanPreviewRequest,
+    auth: AuthContext = Depends(require_roles(*OPERATE_ROLES, csrf=True)),
+) -> ResponsePlanResponse:
     try:
         plan = preview_response_plan(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             text=request.text,
             conversation_state=request.conversation_state,
         )

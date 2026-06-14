@@ -1,10 +1,33 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { apiPost } from "./lib/api";
+import { redirect } from "next/navigation";
+import { apiPost, apiPostAndCopyCookies, loginRequest } from "./lib/api";
 
 function operatorName(): string {
   return process.env.DASHBOARD_OPERATOR_NAME ?? "Operador local";
+}
+
+export async function loginAction(formData: FormData): Promise<void> {
+  const result = await loginRequest({
+    email: String(formData.get("email") ?? ""),
+    password: String(formData.get("password") ?? ""),
+    tenant_slug: process.env.DASHBOARD_TENANT_SLUG ?? undefined
+  });
+  if (!result.ok) {
+    redirect("/login?error=1");
+  }
+  redirect("/conversaciones");
+}
+
+export async function logoutAction(): Promise<void> {
+  await apiPostAndCopyCookies("/auth/logout", {});
+  redirect("/login");
+}
+
+export async function logoutAllAction(): Promise<void> {
+  await apiPostAndCopyCookies("/auth/logout-all", {});
+  redirect("/login");
 }
 
 export async function takeConversation(conversationId: string): Promise<void> {

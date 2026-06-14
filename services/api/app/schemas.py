@@ -13,6 +13,13 @@ class ConversationState(StrEnum):
     CLOSED = "CLOSED"
 
 
+class OperatorRole(StrEnum):
+    OWNER = "OWNER"
+    ADMIN = "ADMIN"
+    OPERATOR = "OPERATOR"
+    VIEWER = "VIEWER"
+
+
 class Decision(StrEnum):
     ANSWER = "ANSWER"
     ASK = "ASK"
@@ -39,6 +46,42 @@ class WebhookAccepted(BaseModel):
     event_id: UUID
     event_status: str
     normalized_messages: int = 0
+
+
+class AuthLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=1024)
+    tenant_slug: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class AuthUserResponse(BaseModel):
+    user_id: UUID
+    email: str
+    display_name: str
+    tenant_id: UUID
+    tenant_slug: str
+    tenant_name: str
+    role: OperatorRole
+    expires_at: datetime
+
+
+class OperatorUserResponse(BaseModel):
+    user_id: UUID
+    email: str
+    display_name: str
+    status: str
+    role: OperatorRole
+    membership_active: bool
+    last_login_at: datetime | None
+    created_at: datetime
+
+
+class OperatorUserCreateRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    display_name: str = Field(min_length=2, max_length=120)
+    password: str = Field(min_length=10, max_length=1024)
+    role: OperatorRole
+    active: bool = True
 
 
 class HandoffRequest(BaseModel):

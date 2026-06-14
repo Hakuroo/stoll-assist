@@ -16,6 +16,21 @@ services:
       timeout: 5s
       retries: 10
 
+  postgres_test:
+    image: pgvector/pgvector:pg17
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: stoll
+      POSTGRES_PASSWORD: stoll
+      POSTGRES_DB: stoll_assist
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stoll -d stoll_assist"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes
@@ -40,6 +55,9 @@ services:
     build:
       context: ./services/api
       target: production
+    environment:
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
     env_file:
       - path: .env
         required: false
@@ -91,12 +109,13 @@ services:
         condition: service_started
 
   test:
+    profiles: ["test"]
     build:
       context: ./services/api
       target: test
     environment:
       APP_ENV: test
-      DATABASE_URL: postgresql+psycopg://stoll:stoll@postgres:5432/stoll_assist
+      DATABASE_URL: postgresql+psycopg://stoll:stoll@postgres_test:5432/stoll_assist
       REDIS_URL: redis://redis:6379/0
       WEBHOOK_QUEUE_NAME: stoll:test:webhooks
       META_VERIFY_TOKEN: test-token
@@ -111,15 +130,18 @@ services:
       LLM_DRAFTING_LEASE_SECONDS: "60"
       RUN_LIVE_OPENAI_TEST: ${RUN_LIVE_OPENAI_TEST:-0}
       KNOWLEDGE_CONFIG_PATH: /app/config/stoll/knowledge
-      PGHOST: postgres
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      PGHOST: postgres_test
       PGUSER: stoll
       PGPASSWORD: stoll
       PGDATABASE: stoll_assist
     volumes:
       - ./config:/app/config:ro
+      - ./infra/postgres/init.sql:/app/init.sql:ro
       - ./infra/postgres/migrations:/app/migrations:ro
     depends_on:
-      postgres:
+      postgres_test:
         condition: service_healthy
       redis:
         condition: service_started

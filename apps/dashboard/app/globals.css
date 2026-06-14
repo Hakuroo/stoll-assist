@@ -50,6 +50,8 @@ input {
   position: sticky;
   top: 0;
   height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .brand {
@@ -99,14 +101,28 @@ input {
   background: rgba(47, 111, 106, 0.11);
 }
 
-.dev-note {
+.session-box {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
-  position: absolute;
-  bottom: 20px;
-  left: 20px;
-  right: 20px;
+  margin-top: auto;
+  display: grid;
+  gap: 6px;
+}
+
+.session-box strong,
+.session-box span {
+  display: block;
+}
+
+.session-box .badge {
+  justify-self: flex-start;
+}
+
+.logout-button {
+  border: 0;
+  width: 100%;
+  margin-top: 4px;
 }
 
 .content {
@@ -281,6 +297,51 @@ input {
   filter: brightness(0.97);
 }
 
+.login-content {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-panel {
+  width: min(100%, 420px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.login-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.login-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.login-form input {
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--surface-soft);
+}
+
+.error-text {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
 .detail-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
@@ -387,7 +448,7 @@ input {
     border-bottom: 1px solid var(--border);
   }
 
-  .dev-note {
+  .session-box {
     position: static;
     margin-top: 18px;
   }

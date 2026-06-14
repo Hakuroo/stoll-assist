@@ -1,4 +1,16 @@
 export type ConversationState = "AUTOMATED" | "HUMAN_REQUIRED" | "HUMAN_ACTIVE" | "CLOSED";
+export type OperatorRole = "OWNER" | "ADMIN" | "OPERATOR" | "VIEWER";
+
+export type AuthUser = {
+  user_id: string;
+  email: string;
+  display_name: string;
+  tenant_id: string;
+  tenant_slug: string;
+  tenant_name: string;
+  role: OperatorRole;
+  expires_at: string;
+};
 
 export type ConversationSummary = {
   conversation_id: string;

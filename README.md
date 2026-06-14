@@ -56,7 +56,9 @@ docker compose run --rm --build test
 ```
 
 El servicio `test` construye una imagen separada con las dependencias de desarrollo,
-aplica las migraciones SQL sobre PostgreSQL, ejecuta `compileall` y corre `pytest`.
+levanta un PostgreSQL efimero exclusivo para tests con `tmpfs`, aplica `init.sql` y las
+migraciones, ejecuta `compileall` y corre `pytest`. No toca la base local de desarrollo
+ni publica el puerto de PostgreSQL de tests al host.
 No requiere `.env`: usa credenciales locales dummy y no conecta OpenAI ni WhatsApp real.
 La imagen normal de `api` y `worker` se construye desde el target `production`, sin
 instalar dependencias de testing.
@@ -78,9 +80,19 @@ Abrir:
 http://localhost:3000
 ```
 
-El panel usa `grupo-stoll` como tenant local y mantiene los endpoints de operador sin
-autenticacion solo para desarrollo. No es apto para exposicion publica sin autenticacion,
-autorizacion y controles de red.
+Crear el primer OWNER local una sola vez, con entrada segura:
+
+```powershell
+docker compose run --rm api python -m app.bootstrap_owner
+```
+
+Tambien se puede pasar `OWNER_EMAIL`, `OWNER_PASSWORD`, `OWNER_DISPLAY_NAME` y
+`OWNER_TENANT_SLUG` como variables locales del shell. No guardes esas credenciales en
+archivos versionados ni las subas a Git.
+
+El panel usa sesiones opacas emitidas por FastAPI. La cookie solo contiene un token
+aleatorio; PostgreSQL guarda su hash. Los endpoints `/operator/*` requieren una sesion
+valida y aplican permisos por tenant.
 
 ## Estado
 

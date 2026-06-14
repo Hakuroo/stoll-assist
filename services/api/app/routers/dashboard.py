@@ -1,8 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.auth import READ_ROLES, AuthContext, require_roles
 from app.database import get_engine
 from app.repositories.operator_dashboard import (
     get_dashboard_conversation_detail,
@@ -15,21 +16,19 @@ from app.schemas import (
     DashboardConversationSummaryResponse,
     DashboardOutboxReviewItemResponse,
 )
-from app.settings import get_settings
-
 router = APIRouter(prefix="/operator/dashboard", tags=["operator-dashboard"])
-settings = get_settings()
 
 
 @router.get("/conversations", response_model=list[DashboardConversationSummaryResponse])
 def conversations(
     state_filter: ConversationState | None = Query(default=None, alias="state"),
     limit: int = Query(default=100, ge=1, le=200),
+    auth: AuthContext = Depends(require_roles(*READ_ROLES)),
 ) -> list[DashboardConversationSummaryResponse]:
     try:
         items = list_dashboard_conversations(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             state_filter=state_filter,
             limit=limit,
         )
@@ -45,11 +44,14 @@ def conversations(
     "/conversations/{conversation_id}",
     response_model=DashboardConversationDetailResponse,
 )
-def conversation_detail(conversation_id: UUID) -> DashboardConversationDetailResponse:
+def conversation_detail(
+    conversation_id: UUID,
+    auth: AuthContext = Depends(require_roles(*READ_ROLES)),
+) -> DashboardConversationDetailResponse:
     try:
         detail = get_dashboard_conversation_detail(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             conversation_id=conversation_id,
         )
         return DashboardConversationDetailResponse.from_detail(detail)
@@ -65,11 +67,12 @@ def conversation_detail(conversation_id: UUID) -> DashboardConversationDetailRes
 @router.get("/outbox", response_model=list[DashboardOutboxReviewItemResponse])
 def outbox_review(
     limit: int = Query(default=100, ge=1, le=200),
+    auth: AuthContext = Depends(require_roles(*READ_ROLES)),
 ) -> list[DashboardOutboxReviewItemResponse]:
     try:
         items = list_dashboard_outbox_review(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             status_filter="PENDING_REVIEW",
             limit=limit,
         )

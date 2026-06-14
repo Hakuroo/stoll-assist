@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { BookOpen, Inbox, MessageSquareText } from "lucide-react";
+import { BookOpen, Inbox, LogOut, MessageSquareText } from "lucide-react";
+import { logoutAction } from "../actions";
+import { getCurrentUser } from "../lib/api";
 
 const navItems = [
   { href: "/conversaciones", label: "Conversaciones", icon: MessageSquareText },
@@ -7,7 +9,12 @@ const navItems = [
   { href: "/conocimiento", label: "Conocimiento", icon: BookOpen }
 ];
 
-export function Shell({ children }: { children: React.ReactNode }) {
+export async function Shell({ children }: { children: React.ReactNode }) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return <main className="login-content">{children}</main>;
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -29,7 +36,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <p className="dev-note">Panel local sin autenticación. No exponer públicamente.</p>
+        <div className="session-box">
+          <strong>{user.display_name}</strong>
+          <span>{user.tenant_name}</span>
+          <span className="badge">{user.role}</span>
+          <form action={logoutAction}>
+            <button className="nav-link logout-button" type="submit">
+              <LogOut size={18} />
+              <span>Salir</span>
+            </button>
+          </form>
+        </div>
       </aside>
       <main className="content">{children}</main>
     </div>

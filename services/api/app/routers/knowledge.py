@@ -1,8 +1,9 @@
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.auth import ADMIN_ROLES, OPERATE_ROLES, READ_ROLES, AuthContext, require_roles
 from app.database import get_engine
 from app.repositories.knowledge import (
     import_knowledge_directory,
@@ -25,11 +26,13 @@ settings = get_settings()
 
 
 @router.post("/import-config", response_model=KnowledgeImportResponse)
-def import_config_knowledge() -> KnowledgeImportResponse:
+def import_config_knowledge(
+    auth: AuthContext = Depends(require_roles(*ADMIN_ROLES, csrf=True)),
+) -> KnowledgeImportResponse:
     try:
         summary = import_knowledge_directory(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             directory=Path(settings.knowledge_config_path),
         )
         return KnowledgeImportResponse(
@@ -46,14 +49,15 @@ def import_config_knowledge() -> KnowledgeImportResponse:
 
 @router.get("", response_model=list[KnowledgeItemResponse])
 def get_knowledge_items(
-    status_filter: str | None = Query(default=None, alias="status")
+    status_filter: str | None = Query(default=None, alias="status"),
+    auth: AuthContext = Depends(require_roles(*READ_ROLES)),
 ) -> list[KnowledgeItemResponse]:
     if status_filter is not None and status_filter not in {"draft", "published", "archived"}:
         raise HTTPException(status_code=400, detail="Invalid knowledge status")
     try:
         items = list_knowledge_items(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             status_filter=status_filter,
         )
         return [KnowledgeItemResponse.from_item(item) for item in items]
@@ -65,13 +69,14 @@ def get_knowledge_items(
 def publish_item(
     external_key: str,
     request: KnowledgePublishRequest,
+    auth: AuthContext = Depends(require_roles(*ADMIN_ROLES, csrf=True)),
 ) -> KnowledgeItemResponse:
     try:
         item = publish_knowledge_item(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             external_key=external_key,
-            approved_by=request.approved_by,
+            approved_by=auth.display_name,
             version=request.version,
         )
         return KnowledgeItemResponse.from_item(item)
@@ -84,11 +89,14 @@ def publish_item(
 
 
 @router.post("/search", response_model=KnowledgeSearchResponse)
-def search_knowledge(request: KnowledgeSearchRequest) -> KnowledgeSearchResponse:
+def search_knowledge(
+    request: KnowledgeSearchRequest,
+    auth: AuthContext = Depends(require_roles(*OPERATE_ROLES, csrf=True)),
+) -> KnowledgeSearchResponse:
     try:
         hits = search_published_knowledge(
             engine=get_engine(),
-            tenant_slug=settings.default_tenant_slug,
+            tenant_slug=auth.tenant_slug,
             query=request.query,
             limit=request.limit,
         )

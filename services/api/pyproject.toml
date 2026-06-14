@@ -21,6 +21,7 @@ dependencies = [
   "boto3>=1.36",
   "python-multipart>=0.0.20",
   "pyyaml>=6.0",
+  "pwdlib[argon2]>=0.2",
 ]
 
 [project.optional-dependencies]
