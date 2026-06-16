@@ -24,7 +24,9 @@ def extract_whatsapp_event_identity(payload: dict[str, Any], raw_body: bytes) ->
             for status in value.get("statuses", []):
                 status_id = status.get("id")
                 if status_id:
-                    provider_ids.append(str(status_id))
+                    status_value = status.get("status") or "unknown"
+                    timestamp = status.get("timestamp") or ""
+                    provider_ids.append(f"{status_id}:{status_value}:{timestamp}")
                     kinds.add("status")
 
     if provider_ids:

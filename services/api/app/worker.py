@@ -53,10 +53,11 @@ def _process_event(event_id: UUID) -> None:
             payload=event.payload,
         )
         logger.info(
-            "Completed event %s with status %s, %s normalized messages, %s policy handoffs, %s response plans, %s verifications, %s rejected drafts and %s outbound drafts",
+            "Completed event %s with status %s, %s normalized messages, %s delivery statuses, %s policy handoffs, %s response plans, %s verifications, %s rejected drafts and %s outbound drafts",
             event_id,
             result.status,
             result.normalized_messages,
+            result.delivery_statuses,
             result.policy_handoffs,
             result.response_plans,
             result.response_verifications,

@@ -16,6 +16,15 @@ class NormalizedInboundMessage(BaseModel):
     raw_message: dict[str, Any]
 
 
+class NormalizedWhatsAppStatus(BaseModel):
+    provider_message_id: str
+    status: str
+    provider_timestamp: datetime | None = None
+    recipient_id: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
 def normalize_whatsapp_messages(payload: dict[str, Any]) -> list[NormalizedInboundMessage]:
     normalized: list[NormalizedInboundMessage] = []
 
@@ -73,6 +82,55 @@ def normalize_whatsapp_messages(payload: dict[str, Any]) -> list[NormalizedInbou
                 )
 
     return normalized
+
+
+def normalize_whatsapp_statuses(payload: dict[str, Any]) -> list[NormalizedWhatsAppStatus]:
+    normalized: list[NormalizedWhatsAppStatus] = []
+
+    for entry in _as_list(payload.get("entry")):
+        for change in _as_list(entry.get("changes")):
+            if change.get("field") != "messages":
+                continue
+
+            value = change.get("value")
+            if not isinstance(value, dict):
+                continue
+
+            for status in _as_list(value.get("statuses")):
+                if not isinstance(status, dict):
+                    continue
+
+                provider_message_id = _as_text(status.get("id"))
+                delivery_status = _as_text(status.get("status"))
+                if not provider_message_id or not delivery_status:
+                    continue
+
+                error_code, error_message = _extract_status_error(status.get("errors"))
+                normalized.append(
+                    NormalizedWhatsAppStatus(
+                        provider_message_id=provider_message_id,
+                        status=delivery_status,
+                        provider_timestamp=_parse_unix_timestamp(status.get("timestamp")),
+                        recipient_id=_as_text(status.get("recipient_id")),
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
+                )
+
+    return normalized
+
+
+def _extract_status_error(raw_errors: Any) -> tuple[str | None, str | None]:
+    for item in _as_list(raw_errors):
+        if not isinstance(item, dict):
+            continue
+        code = _as_text(item.get("code"))
+        title = _as_text(item.get("title"))
+        message = _as_text(item.get("message"))
+        details = _as_text(item.get("details"))
+        safe_parts = [part for part in [title, message, details] if part]
+        return code, "; ".join(safe_parts)[:1000] if safe_parts else None
+    return None, None
 
 
 def _extract_message_content(

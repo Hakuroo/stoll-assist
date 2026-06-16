@@ -34,11 +34,29 @@ class StoredOutboundMessage:
     provider_message_id: str | None
     send_attempt_count: int
     last_attempt_at: Any
+    lease_owner: str | None
+    lease_expires_at: Any
+    current_send_attempt_id: UUID | None
     sent_at: Any
     failed_at: Any
+    unknown_at: Any
+    delivery_status: str | None
+    delivered_at: Any
+    read_at: Any
+    provider_failed_at: Any
+    delivery_error_code: str | None
+    delivery_error_message: str | None
     error_message: str | None
     created_at: Any
     updated_at: Any
+
+
+@dataclass(frozen=True)
+class OutboundDeliveryStatusResult:
+    matched: bool
+    duplicate: bool
+    updated: bool
+    status: str | None
 
 
 def create_outbound_draft(
@@ -421,7 +439,11 @@ def claim_outbound_for_send(
     tenant_slug: str,
     outbound_id: UUID,
     operator_name: str,
+    lease_owner: str | None = None,
+    lease_seconds: int = 120,
 ) -> StoredOutboundMessage:
+    lease_owner = lease_owner or operator_name
+    lease_seconds = max(1, lease_seconds)
     with engine.begin() as connection:
         tenant_id = _get_active_tenant_id(connection, tenant_slug)
         row = _load_outbound(connection, tenant_id, outbound_id, for_update=True)
@@ -429,35 +451,82 @@ def claim_outbound_for_send(
             raise LookupError(f"Outbound message not found: {outbound_id}")
         if row["status"] == "SENT" and row["provider_message_id"]:
             return _row_to_outbound(row)
-        if row["status"] != "APPROVED":
+        if row["status"] == "UNKNOWN":
+            raise OutboxTransitionError(
+                "Outbound message has an unknown send result and requires manual review"
+            )
+        if row["status"] == "QUEUED":
+            lease_expires_at = row["lease_expires_at"]
+            if lease_expires_at is not None and lease_expires_at > datetime.now(UTC):
+                raise OutboxTransitionError("Outbound message is already being sent")
+        elif row["status"] != "APPROVED":
             raise OutboxTransitionError(
                 f"Only APPROVED messages can be sent; current status is {row['status']}"
             )
         if row["provider_message_id"] or row["sent_at"] is not None:
             raise OutboxTransitionError("Outbound message already has provider send metadata")
 
+        attempt_number = int(row["send_attempt_count"]) + 1
+        attempt_id = connection.execute(
+            text(
+                """
+                INSERT INTO outbound_send_attempts (
+                    tenant_id,
+                    outbound_message_id,
+                    attempt_number,
+                    lease_owner,
+                    status
+                )
+                VALUES (
+                    :tenant_id,
+                    :outbound_id,
+                    :attempt_number,
+                    :lease_owner,
+                    'CLAIMED'
+                )
+                RETURNING id
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "outbound_id": outbound_id,
+                "attempt_number": attempt_number,
+                "lease_owner": lease_owner,
+            },
+        ).scalar_one()
+
         updated = connection.execute(
             text(
                 """
                 UPDATE outbound_messages
                 SET status = 'QUEUED',
-                    send_attempt_count = send_attempt_count + 1,
+                    send_attempt_count = :attempt_number,
                     last_attempt_at = now(),
+                    lease_owner = :lease_owner,
+                    lease_expires_at = now() + (:lease_seconds * interval '1 second'),
+                    current_send_attempt_id = :attempt_id,
                     failed_at = NULL,
+                    unknown_at = NULL,
                     error_message = NULL,
                     updated_at = now()
                 WHERE id = :outbound_id
                 RETURNING *
                 """
             ),
-            {"outbound_id": outbound_id},
+            {
+                "outbound_id": outbound_id,
+                "attempt_number": attempt_number,
+                "lease_owner": lease_owner,
+                "lease_seconds": lease_seconds,
+                "attempt_id": attempt_id,
+            },
         ).mappings().one()
         _audit_transition(
             connection=connection,
             tenant_id=tenant_id,
             conversation_id=updated["conversation_id"],
             outbound_id=outbound_id,
-            event_type="OUTBOUND_SEND_QUEUED",
+            event_type="OUTBOUND_SEND_LEASE_CLAIMED",
             decision="QUEUED",
             actor=operator_name,
             note=None,
@@ -470,7 +539,10 @@ def mark_outbound_sent(
     engine: Engine,
     tenant_slug: str,
     outbound_id: UUID,
+    attempt_id: UUID,
+    lease_owner: str,
     provider_message_id: str,
+    latency_ms: int,
     operator_name: str,
 ) -> StoredOutboundMessage:
     with engine.begin() as connection:
@@ -481,25 +553,44 @@ def mark_outbound_sent(
                 UPDATE outbound_messages
                 SET status = 'SENT',
                     provider_message_id = :provider_message_id,
-                    sent_at = now(),
+                    sent_at = COALESCE(sent_at, now()),
+                    delivery_status = COALESCE(delivery_status, 'SENT'),
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    current_send_attempt_id = NULL,
                     failed_at = NULL,
+                    unknown_at = NULL,
                     error_message = NULL,
                     updated_at = now()
                 WHERE id = :outbound_id
                   AND tenant_id = :tenant_id
                   AND status = 'QUEUED'
-                  AND provider_message_id IS NULL
+                  AND current_send_attempt_id = :attempt_id
+                  AND lease_owner = :lease_owner
                 RETURNING *
                 """
             ),
             {
                 "tenant_id": tenant_id,
                 "outbound_id": outbound_id,
+                "attempt_id": attempt_id,
+                "lease_owner": lease_owner,
                 "provider_message_id": provider_message_id,
             },
         ).mappings().one_or_none()
         if row is None:
             raise OutboxTransitionError("Outbound message could not be marked as sent")
+        _complete_send_attempt(
+            connection=connection,
+            tenant_id=tenant_id,
+            attempt_id=attempt_id,
+            status="SENT",
+            provider_message_id=provider_message_id,
+            request_started=True,
+            latency_ms=latency_ms,
+            error_type=None,
+            error_message=None,
+        )
         _audit_transition(
             connection=connection,
             tenant_id=tenant_id,
@@ -518,7 +609,13 @@ def mark_outbound_send_failed(
     engine: Engine,
     tenant_slug: str,
     outbound_id: UUID,
+    attempt_id: UUID,
+    lease_owner: str,
     error_message: str,
+    error_type: str,
+    request_started: bool,
+    latency_ms: int | None,
+    provider_message_id: str | None,
     operator_name: str,
 ) -> StoredOutboundMessage:
     with engine.begin() as connection:
@@ -528,13 +625,18 @@ def mark_outbound_send_failed(
                 """
                 UPDATE outbound_messages
                 SET status = 'FAILED',
+                    provider_message_id = COALESCE(provider_message_id, :provider_message_id),
                     failed_at = now(),
                     error_message = :error_message,
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    current_send_attempt_id = NULL,
                     updated_at = now()
                 WHERE id = :outbound_id
                   AND tenant_id = :tenant_id
                   AND status = 'QUEUED'
-                  AND provider_message_id IS NULL
+                  AND current_send_attempt_id = :attempt_id
+                  AND lease_owner = :lease_owner
                 RETURNING *
                 """
             ),
@@ -542,10 +644,24 @@ def mark_outbound_send_failed(
                 "tenant_id": tenant_id,
                 "outbound_id": outbound_id,
                 "error_message": error_message[:1000],
+                "provider_message_id": provider_message_id,
+                "attempt_id": attempt_id,
+                "lease_owner": lease_owner,
             },
         ).mappings().one_or_none()
         if row is None:
             raise OutboxTransitionError("Outbound message could not be marked as failed")
+        _complete_send_attempt(
+            connection=connection,
+            tenant_id=tenant_id,
+            attempt_id=attempt_id,
+            status="FAILED",
+            provider_message_id=provider_message_id,
+            request_started=request_started,
+            latency_ms=latency_ms,
+            error_type=error_type,
+            error_message=error_message,
+        )
         _audit_transition(
             connection=connection,
             tenant_id=tenant_id,
@@ -557,6 +673,301 @@ def mark_outbound_send_failed(
             note=error_message[:500],
         )
         return _row_to_outbound(row)
+
+
+def mark_outbound_send_unknown(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    outbound_id: UUID,
+    attempt_id: UUID,
+    lease_owner: str,
+    error_message: str,
+    error_type: str,
+    request_started: bool,
+    latency_ms: int | None,
+    provider_message_id: str | None,
+    operator_name: str,
+) -> StoredOutboundMessage:
+    with engine.begin() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        row = connection.execute(
+            text(
+                """
+                UPDATE outbound_messages
+                SET status = 'UNKNOWN',
+                    provider_message_id = COALESCE(provider_message_id, :provider_message_id),
+                    unknown_at = now(),
+                    error_message = :error_message,
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    current_send_attempt_id = NULL,
+                    updated_at = now()
+                WHERE id = :outbound_id
+                  AND tenant_id = :tenant_id
+                  AND status = 'QUEUED'
+                  AND current_send_attempt_id = :attempt_id
+                  AND lease_owner = :lease_owner
+                RETURNING *
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "outbound_id": outbound_id,
+                "attempt_id": attempt_id,
+                "lease_owner": lease_owner,
+                "provider_message_id": provider_message_id,
+                "error_message": error_message[:1000],
+            },
+        ).mappings().one_or_none()
+        if row is None:
+            raise OutboxTransitionError("Outbound message could not be marked as unknown")
+        _complete_send_attempt(
+            connection=connection,
+            tenant_id=tenant_id,
+            attempt_id=attempt_id,
+            status="UNKNOWN",
+            provider_message_id=provider_message_id,
+            request_started=request_started,
+            latency_ms=latency_ms,
+            error_type=error_type,
+            error_message=error_message,
+        )
+        _audit_transition(
+            connection=connection,
+            tenant_id=tenant_id,
+            conversation_id=row["conversation_id"],
+            outbound_id=outbound_id,
+            event_type="OUTBOUND_SEND_UNKNOWN",
+            decision="UNKNOWN",
+            actor=operator_name,
+            note=error_message[:500],
+        )
+        return _row_to_outbound(row)
+
+
+def record_outbound_delivery_status(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    provider_message_id: str,
+    delivery_status: str,
+    provider_timestamp: datetime | None = None,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> OutboundDeliveryStatusResult:
+    normalized_status = _normalize_delivery_status(delivery_status)
+    dedupe_key = _delivery_dedupe_key(
+        provider_message_id=provider_message_id,
+        delivery_status=normalized_status,
+        error_code=error_code,
+    )
+
+    with engine.begin() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        row = connection.execute(
+            text(
+                """
+                SELECT id, conversation_id, delivery_status
+                FROM outbound_messages
+                WHERE tenant_id = :tenant_id
+                  AND provider_message_id = :provider_message_id
+                FOR UPDATE
+                """
+            ),
+            {"tenant_id": tenant_id, "provider_message_id": provider_message_id},
+        ).mappings().one_or_none()
+        if row is None:
+            return OutboundDeliveryStatusResult(
+                matched=False,
+                duplicate=False,
+                updated=False,
+                status=None,
+            )
+
+        inserted = connection.execute(
+            text(
+                """
+                INSERT INTO outbound_delivery_events (
+                    tenant_id,
+                    outbound_message_id,
+                    provider_message_id,
+                    delivery_status,
+                    provider_timestamp,
+                    error_code,
+                    error_message,
+                    dedupe_key
+                )
+                VALUES (
+                    :tenant_id,
+                    :outbound_id,
+                    :provider_message_id,
+                    :delivery_status,
+                    :provider_timestamp,
+                    :error_code,
+                    :error_message,
+                    :dedupe_key
+                )
+                ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
+                RETURNING id
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "outbound_id": row["id"],
+                "provider_message_id": provider_message_id,
+                "delivery_status": normalized_status,
+                "provider_timestamp": provider_timestamp,
+                "error_code": error_code,
+                "error_message": None if error_message is None else error_message[:1000],
+                "dedupe_key": dedupe_key,
+            },
+        ).scalar_one_or_none()
+        if inserted is None:
+            return OutboundDeliveryStatusResult(
+                matched=True,
+                duplicate=True,
+                updated=False,
+                status=row["delivery_status"],
+            )
+
+        current_status = row["delivery_status"]
+        if _delivery_rank(normalized_status) <= _delivery_rank(current_status):
+            return OutboundDeliveryStatusResult(
+                matched=True,
+                duplicate=False,
+                updated=False,
+                status=current_status,
+            )
+
+        updated_status = connection.execute(
+            text(
+                """
+                UPDATE outbound_messages
+                SET delivery_status = :delivery_status,
+                    sent_at = CASE
+                        WHEN :delivery_status = 'SENT' THEN COALESCE(sent_at, :provider_timestamp, now())
+                        ELSE sent_at
+                    END,
+                    delivered_at = CASE
+                        WHEN :delivery_status = 'DELIVERED' THEN COALESCE(delivered_at, :provider_timestamp, now())
+                        ELSE delivered_at
+                    END,
+                    read_at = CASE
+                        WHEN :delivery_status = 'READ' THEN COALESCE(read_at, :provider_timestamp, now())
+                        ELSE read_at
+                    END,
+                    provider_failed_at = CASE
+                        WHEN :delivery_status = 'FAILED' THEN COALESCE(provider_failed_at, :provider_timestamp, now())
+                        ELSE provider_failed_at
+                    END,
+                    delivery_error_code = CASE
+                        WHEN :delivery_status = 'FAILED' THEN :error_code
+                        ELSE delivery_error_code
+                    END,
+                    delivery_error_message = CASE
+                        WHEN :delivery_status = 'FAILED' THEN :error_message
+                        ELSE delivery_error_message
+                    END,
+                    updated_at = now()
+                WHERE id = :outbound_id
+                  AND tenant_id = :tenant_id
+                RETURNING delivery_status
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "outbound_id": row["id"],
+                "delivery_status": normalized_status,
+                "provider_timestamp": provider_timestamp,
+                "error_code": error_code,
+                "error_message": None if error_message is None else error_message[:1000],
+            },
+        ).scalar_one()
+
+        return OutboundDeliveryStatusResult(
+            matched=True,
+            duplicate=False,
+            updated=True,
+            status=updated_status,
+        )
+
+
+def _complete_send_attempt(
+    *,
+    connection: Connection,
+    tenant_id: UUID,
+    attempt_id: UUID,
+    status: str,
+    provider_message_id: str | None,
+    request_started: bool,
+    latency_ms: int | None,
+    error_type: str | None,
+    error_message: str | None,
+) -> None:
+    connection.execute(
+        text(
+            """
+            UPDATE outbound_send_attempts
+            SET status = :status,
+                provider_message_id = :provider_message_id,
+                request_started = :request_started,
+                latency_ms = :latency_ms,
+                error_type = :error_type,
+                error_message = :error_message,
+                completed_at = now(),
+                updated_at = now()
+            WHERE id = :attempt_id
+              AND tenant_id = :tenant_id
+            """
+        ),
+        {
+            "tenant_id": tenant_id,
+            "attempt_id": attempt_id,
+            "status": status,
+            "provider_message_id": provider_message_id,
+            "request_started": request_started,
+            "latency_ms": latency_ms,
+            "error_type": error_type,
+            "error_message": None if error_message is None else error_message[:1000],
+        },
+    )
+
+
+def _normalize_delivery_status(value: str) -> str:
+    status = value.strip().upper()
+    if status == "DELIVERED":
+        return "DELIVERED"
+    if status == "READ":
+        return "READ"
+    if status == "FAILED":
+        return "FAILED"
+    if status == "SENT":
+        return "SENT"
+    raise OutboxTransitionError(f"Unsupported WhatsApp delivery status: {value}")
+
+
+def _delivery_rank(value: str | None) -> int:
+    return {
+        None: 0,
+        "SENT": 1,
+        "FAILED": 2,
+        "DELIVERED": 3,
+        "READ": 4,
+    }.get(value, 0)
+
+
+def _delivery_dedupe_key(
+    *, provider_message_id: str, delivery_status: str, error_code: str | None
+) -> str:
+    raw = "|".join(
+        [
+            provider_message_id,
+            delivery_status,
+            error_code or "",
+        ]
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _load_outbound(
@@ -653,8 +1064,18 @@ def _row_to_outbound(
         provider_message_id=row["provider_message_id"],
         send_attempt_count=row["send_attempt_count"],
         last_attempt_at=row["last_attempt_at"],
+        lease_owner=row["lease_owner"],
+        lease_expires_at=row["lease_expires_at"],
+        current_send_attempt_id=row["current_send_attempt_id"],
         sent_at=row["sent_at"],
         failed_at=row["failed_at"],
+        unknown_at=row["unknown_at"],
+        delivery_status=row["delivery_status"],
+        delivered_at=row["delivered_at"],
+        read_at=row["read_at"],
+        provider_failed_at=row["provider_failed_at"],
+        delivery_error_code=row["delivery_error_code"],
+        delivery_error_message=row["delivery_error_message"],
         error_message=row["error_message"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],

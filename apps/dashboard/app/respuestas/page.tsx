@@ -40,7 +40,22 @@ export default async function ResponsesPage() {
               <div className="page-header" style={{ marginBottom: 12 }}>
                 <div>
                   <div className="item-meta">
-                    <span className="badge warn">{stateLabel(item.status)}</span>
+                    <span
+                      className={`badge ${
+                        item.status === "SENT"
+                          ? "ok"
+                          : item.status === "FAILED" || item.status === "UNKNOWN"
+                            ? "danger"
+                            : "warn"
+                      }`}
+                    >
+                      {stateLabel(item.status)}
+                    </span>
+                    {item.delivery_status ? (
+                      <span className={`badge ${item.delivery_status === "READ" ? "ok" : ""}`}>
+                        Entrega: {stateLabel(item.delivery_status)}
+                      </span>
+                    ) : null}
                     <span>{formatDate(item.created_at)}</span>
                     <span>{item.display_name ?? item.recipient}</span>
                   </div>
@@ -53,6 +68,8 @@ export default async function ResponsesPage() {
                   <span>provider_message_id: {item.provider_message_id ?? "NULL"}</span>
                   <span>intentos: {item.send_attempt_count}</span>
                   {item.sent_at ? <span>enviado: {formatDate(item.sent_at)}</span> : null}
+                  {item.delivered_at ? <span>entregado: {formatDate(item.delivered_at)}</span> : null}
+                  {item.read_at ? <span>leido: {formatDate(item.read_at)}</span> : null}
                 </div>
               </div>
 
@@ -84,8 +101,22 @@ export default async function ResponsesPage() {
                   Aprobar cambia el estado del borrador. Enviar WhatsApp requiere una acción separada.
                 </p>
                 {!sendEnabled ? <p className="muted small">Envío deshabilitado.</p> : null}
+                {item.status === "QUEUED" && item.lease_expires_at ? (
+                  <p className="muted small">Envio en curso hasta {formatDate(item.lease_expires_at)}.</p>
+                ) : null}
+                {item.status === "UNKNOWN" ? (
+                  <p className="error-text">
+                    Resultado incierto. No se reintenta automaticamente; requiere conciliacion o revision humana.
+                  </p>
+                ) : null}
                 {item.error_message ? (
                   <p className="error-text">Error de envío: {item.error_message}</p>
+                ) : null}
+                {item.delivery_error_message ? (
+                  <p className="error-text">
+                    Error de entrega: {item.delivery_error_code ? `${item.delivery_error_code} - ` : ""}
+                    {item.delivery_error_message}
+                  </p>
                 ) : null}
               </section>
 

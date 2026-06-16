@@ -4,7 +4,8 @@ from uuid import UUID
 
 from sqlalchemy import Engine
 
-from app.normalization import normalize_whatsapp_messages
+from app.normalization import normalize_whatsapp_messages, normalize_whatsapp_statuses
+from app.repositories.outbox import record_outbound_delivery_status
 from app.repositories.messages import persist_inbound_messages_with_context
 from app.repositories.webhook_events import complete_webhook_event
 from app.services.drafting_providers import DraftingProvider
@@ -22,6 +23,7 @@ class ProcessingResult:
     status: str
     normalized_messages: int
     policy_handoffs: int = 0
+    delivery_statuses: int = 0
     response_plans: int = 0
     response_verifications: int = 0
     rejected_drafts: int = 0
@@ -38,6 +40,20 @@ def process_whatsapp_webhook(
     llm_drafting_enabled: bool | None = None,
 ) -> ProcessingResult:
     try:
+        delivery_statuses = 0
+        for status_update in normalize_whatsapp_statuses(payload):
+            result = record_outbound_delivery_status(
+                engine=engine,
+                tenant_slug=tenant_slug,
+                provider_message_id=status_update.provider_message_id,
+                delivery_status=status_update.status,
+                provider_timestamp=status_update.provider_timestamp,
+                error_code=status_update.error_code,
+                error_message=status_update.error_message,
+            )
+            if result.matched and not result.duplicate:
+                delivery_statuses += 1
+
         normalized = normalize_whatsapp_messages(payload)
         persisted = persist_inbound_messages_with_context(
             engine=engine,
@@ -123,7 +139,7 @@ def process_whatsapp_webhook(
                 if outbound is not None:
                     outbound_drafts += 1
 
-        terminal_status = "PROCESSED" if normalized else "IGNORED"
+        terminal_status = "PROCESSED" if normalized or delivery_statuses else "IGNORED"
         complete_webhook_event(
             engine=engine,
             event_id=event_id,
@@ -133,6 +149,7 @@ def process_whatsapp_webhook(
             status=terminal_status,
             normalized_messages=len(persisted),
             policy_handoffs=policy_handoffs,
+            delivery_statuses=delivery_statuses,
             response_plans=response_plans,
             response_verifications=response_verifications,
             rejected_drafts=rejected_drafts,
