@@ -58,6 +58,7 @@ services:
     environment:
       AUTH_COOKIE_SECURE: "false"
       AUTH_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      WHATSAPP_SEND_ENABLED: "false"
     env_file:
       - path: .env
         required: false
@@ -123,6 +124,8 @@ services:
       META_ACCESS_TOKEN: not-used-in-tests
       META_PHONE_NUMBER_ID: test-phone-number-id
       META_API_VERSION: v99.0
+      WHATSAPP_SEND_ENABLED: "false"
+      WHATSAPP_REQUEST_TIMEOUT_SECONDS: "10"
       OPENAI_API_KEY: ${OPENAI_API_KEY:-not-used-in-tests}
       OPENAI_GENERATION_MODEL: ${OPENAI_GENERATION_MODEL:-gpt-5.4-mini}
       LLM_DRAFTING_ENABLED: "false"

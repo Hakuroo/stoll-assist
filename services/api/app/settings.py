@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     meta_access_token: str
     meta_phone_number_id: str
     meta_api_version: str
+    whatsapp_send_enabled: bool = False
+    whatsapp_request_timeout_seconds: float = 10.0
 
     openai_api_key: str
     openai_classifier_model: str = "gpt-5.4-nano"

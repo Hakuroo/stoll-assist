@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { Check, Send, X } from "lucide-react";
-import { approveOutbound, rejectOutbound } from "../actions";
+import { approveOutbound, rejectOutbound, sendOutbound } from "../actions";
 import {
   apiGet,
   canOperate,
   dashboardOutboxPath,
   getCurrentUser,
-  type OutboxReviewItem
+  outboxSendConfigPath,
+  type OutboxReviewItem,
+  type OutboxSendConfig
 } from "../lib/api";
 import { formatDate, stateLabel } from "../lib/format";
 import { EmptyState, ErrorState } from "../components/State";
@@ -14,7 +16,9 @@ import { EmptyState, ErrorState } from "../components/State";
 export default async function ResponsesPage() {
   const user = await getCurrentUser();
   const result = await apiGet<OutboxReviewItem[]>(dashboardOutboxPath());
+  const sendConfig = await apiGet<OutboxSendConfig>(outboxSendConfigPath());
   const showActions = user ? canOperate(user.role) : false;
+  const sendEnabled = sendConfig.ok ? sendConfig.data.whatsapp_send_enabled : false;
 
   return (
     <>
@@ -28,7 +32,7 @@ export default async function ResponsesPage() {
       {!result.ok ? (
         <ErrorState message={result.error} />
       ) : result.data.length === 0 ? (
-        <EmptyState title="No hay respuestas pendientes" />
+        <EmptyState title="No hay respuestas para revisar" />
       ) : (
         <div className="grid">
           {result.data.map((item) => (
@@ -48,6 +52,7 @@ export default async function ResponsesPage() {
                   <Send size={15} />
                   <span>provider_message_id: {item.provider_message_id ?? "NULL"}</span>
                   <span>intentos: {item.send_attempt_count}</span>
+                  {item.sent_at ? <span>enviado: {formatDate(item.sent_at)}</span> : null}
                 </div>
               </div>
 
@@ -76,30 +81,46 @@ export default async function ResponsesPage() {
                   <span className="badge">{item.verification.reason_code}</span>
                 </div>
                 <p className="muted small">
-                  Aprobar cambia el estado del borrador, pero no envía WhatsApp en esta versión.
+                  Aprobar cambia el estado del borrador. Enviar WhatsApp requiere una acción separada.
                 </p>
+                {!sendEnabled ? <p className="muted small">Envío deshabilitado.</p> : null}
+                {item.error_message ? (
+                  <p className="error-text">Error de envío: {item.error_message}</p>
+                ) : null}
               </section>
 
               {showActions ? (
                 <div className="button-row">
-                  <form action={approveOutbound.bind(null, item.outbound_id)}>
-                    <button className="button primary" type="submit">
-                      <Check size={16} />
-                      Aprobar
-                    </button>
-                  </form>
-                  <form action={rejectOutbound.bind(null, item.outbound_id)} className="button-row">
-                    <input
-                      className="reject-input"
-                      name="reason"
-                      placeholder="Motivo de rechazo"
-                      minLength={3}
-                    />
-                    <button className="button danger" type="submit">
-                      <X size={16} />
-                      Rechazar
-                    </button>
-                  </form>
+                  {item.status === "PENDING_REVIEW" ? (
+                    <>
+                      <form action={approveOutbound.bind(null, item.outbound_id)}>
+                        <button className="button primary" type="submit">
+                          <Check size={16} />
+                          Aprobar
+                        </button>
+                      </form>
+                      <form action={rejectOutbound.bind(null, item.outbound_id)} className="button-row">
+                        <input
+                          className="reject-input"
+                          name="reason"
+                          placeholder="Motivo de rechazo"
+                          minLength={3}
+                        />
+                        <button className="button danger" type="submit">
+                          <X size={16} />
+                          Rechazar
+                        </button>
+                      </form>
+                    </>
+                  ) : null}
+                  {item.status === "APPROVED" && sendEnabled ? (
+                    <form action={sendOutbound.bind(null, item.outbound_id)}>
+                      <button className="button primary" type="submit">
+                        <Send size={16} />
+                        Enviar
+                      </button>
+                    </form>
+                  ) : null}
                 </div>
               ) : null}
             </article>

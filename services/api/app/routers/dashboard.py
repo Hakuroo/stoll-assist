@@ -15,6 +15,7 @@ from app.schemas import (
     DashboardConversationDetailResponse,
     DashboardConversationSummaryResponse,
     DashboardOutboxReviewItemResponse,
+    OutboundStatus,
 )
 router = APIRouter(prefix="/operator/dashboard", tags=["operator-dashboard"])
 
@@ -66,6 +67,7 @@ def conversation_detail(
 
 @router.get("/outbox", response_model=list[DashboardOutboxReviewItemResponse])
 def outbox_review(
+    status_filter: OutboundStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=100, ge=1, le=200),
     auth: AuthContext = Depends(require_roles(*READ_ROLES)),
 ) -> list[DashboardOutboxReviewItemResponse]:
@@ -73,7 +75,7 @@ def outbox_review(
         items = list_dashboard_outbox_review(
             engine=get_engine(),
             tenant_slug=auth.tenant_slug,
-            status_filter="PENDING_REVIEW",
+            status_filter=None if status_filter is None else status_filter.value,
             limit=limit,
         )
         return [DashboardOutboxReviewItemResponse.from_item(item) for item in items]

@@ -94,6 +94,34 @@ El panel usa sesiones opacas emitidas por FastAPI. La cookie solo contiene un to
 aleatorio; PostgreSQL guarda su hash. Los endpoints `/operator/*` requieren una sesion
 valida y aplican permisos por tenant.
 
+## Numero de prueba de WhatsApp Cloud
+
+La API expone el webhook en:
+
+```text
+GET/POST /webhooks/whatsapp
+```
+
+Para configurar credenciales locales mas adelante, copia `.env.example` a `.env` y completa
+solo en tu entorno local:
+
+```text
+META_VERIFY_TOKEN=...
+META_APP_SECRET=...
+META_ACCESS_TOKEN=...
+META_PHONE_NUMBER_ID=...
+META_API_VERSION=vXX.X
+WHATSAPP_SEND_ENABLED=false
+```
+
+No subas `.env` a Git ni pegues esos valores en logs, issues o PRs. El endpoint `GET`
+responde el challenge de Meta cuando el verify token coincide. El `POST` valida
+`X-Hub-Signature-256` contra el cuerpo crudo antes de persistir o encolar.
+
+La aprobacion de un outbound no envia WhatsApp. El envio es una accion separada del panel
+y de `POST /operator/outbox/{outbound_id}/send`; ademas queda bloqueado mientras
+`WHATSAPP_SEND_ENABLED=false`, que es el valor por defecto.
+
 ## Estado
 
 Este repositorio es un **scaffold técnico**, no una aplicación terminada. La siguiente etapa implementa:
@@ -114,7 +142,7 @@ La API ahora:
 - valida la firma HMAC enviada por Meta;
 - valida que el cuerpo sea JSON;
 - crea una identidad estable para el evento;
-- guarda el payload completo en PostgreSQL;
+- guarda el payload validado para procesamiento asincronico;
 - detecta reintentos idénticos sin crear filas duplicadas.
 
 Aplicar migraciones:
