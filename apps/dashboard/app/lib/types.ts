@@ -127,6 +127,10 @@ export type OutboxReviewItem = {
   requires_review: boolean;
   provider_message_id: string | null;
   send_attempt_count: number;
+  last_attempt_at: string | null;
+  sent_at: string | null;
+  failed_at: string | null;
+  error_message: string | null;
   created_at: string;
   updated_at: string;
   customer_message_text: string | null;
@@ -139,3 +143,7 @@ export type OutboxReviewItem = {
 export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
+
+export type OutboxSendConfig = {
+  whatsapp_send_enabled: boolean;
+};

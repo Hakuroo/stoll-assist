@@ -32,6 +32,11 @@ class StoredOutboundMessage:
     rejected_at: Any
     rejection_reason: str | None
     provider_message_id: str | None
+    send_attempt_count: int
+    last_attempt_at: Any
+    sent_at: Any
+    failed_at: Any
+    error_message: str | None
     created_at: Any
     updated_at: Any
 
@@ -410,6 +415,150 @@ def reject_outbound_message(
         return _row_to_outbound(updated, display_name=row["display_name"])
 
 
+def claim_outbound_for_send(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    outbound_id: UUID,
+    operator_name: str,
+) -> StoredOutboundMessage:
+    with engine.begin() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        row = _load_outbound(connection, tenant_id, outbound_id, for_update=True)
+        if row is None:
+            raise LookupError(f"Outbound message not found: {outbound_id}")
+        if row["status"] == "SENT" and row["provider_message_id"]:
+            return _row_to_outbound(row)
+        if row["status"] != "APPROVED":
+            raise OutboxTransitionError(
+                f"Only APPROVED messages can be sent; current status is {row['status']}"
+            )
+        if row["provider_message_id"] or row["sent_at"] is not None:
+            raise OutboxTransitionError("Outbound message already has provider send metadata")
+
+        updated = connection.execute(
+            text(
+                """
+                UPDATE outbound_messages
+                SET status = 'QUEUED',
+                    send_attempt_count = send_attempt_count + 1,
+                    last_attempt_at = now(),
+                    failed_at = NULL,
+                    error_message = NULL,
+                    updated_at = now()
+                WHERE id = :outbound_id
+                RETURNING *
+                """
+            ),
+            {"outbound_id": outbound_id},
+        ).mappings().one()
+        _audit_transition(
+            connection=connection,
+            tenant_id=tenant_id,
+            conversation_id=updated["conversation_id"],
+            outbound_id=outbound_id,
+            event_type="OUTBOUND_SEND_QUEUED",
+            decision="QUEUED",
+            actor=operator_name,
+            note=None,
+        )
+        return _row_to_outbound(updated, display_name=row["display_name"])
+
+
+def mark_outbound_sent(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    outbound_id: UUID,
+    provider_message_id: str,
+    operator_name: str,
+) -> StoredOutboundMessage:
+    with engine.begin() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        row = connection.execute(
+            text(
+                """
+                UPDATE outbound_messages
+                SET status = 'SENT',
+                    provider_message_id = :provider_message_id,
+                    sent_at = now(),
+                    failed_at = NULL,
+                    error_message = NULL,
+                    updated_at = now()
+                WHERE id = :outbound_id
+                  AND tenant_id = :tenant_id
+                  AND status = 'QUEUED'
+                  AND provider_message_id IS NULL
+                RETURNING *
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "outbound_id": outbound_id,
+                "provider_message_id": provider_message_id,
+            },
+        ).mappings().one_or_none()
+        if row is None:
+            raise OutboxTransitionError("Outbound message could not be marked as sent")
+        _audit_transition(
+            connection=connection,
+            tenant_id=tenant_id,
+            conversation_id=row["conversation_id"],
+            outbound_id=outbound_id,
+            event_type="OUTBOUND_SENT",
+            decision="SENT",
+            actor=operator_name,
+            note=None,
+        )
+        return _row_to_outbound(row)
+
+
+def mark_outbound_send_failed(
+    *,
+    engine: Engine,
+    tenant_slug: str,
+    outbound_id: UUID,
+    error_message: str,
+    operator_name: str,
+) -> StoredOutboundMessage:
+    with engine.begin() as connection:
+        tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        row = connection.execute(
+            text(
+                """
+                UPDATE outbound_messages
+                SET status = 'FAILED',
+                    failed_at = now(),
+                    error_message = :error_message,
+                    updated_at = now()
+                WHERE id = :outbound_id
+                  AND tenant_id = :tenant_id
+                  AND status = 'QUEUED'
+                  AND provider_message_id IS NULL
+                RETURNING *
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "outbound_id": outbound_id,
+                "error_message": error_message[:1000],
+            },
+        ).mappings().one_or_none()
+        if row is None:
+            raise OutboxTransitionError("Outbound message could not be marked as failed")
+        _audit_transition(
+            connection=connection,
+            tenant_id=tenant_id,
+            conversation_id=row["conversation_id"],
+            outbound_id=outbound_id,
+            event_type="OUTBOUND_SEND_FAILED",
+            decision="FAILED",
+            actor=operator_name,
+            note=error_message[:500],
+        )
+        return _row_to_outbound(row)
+
+
 def _load_outbound(
     connection: Connection,
     tenant_id: UUID,
@@ -502,6 +651,11 @@ def _row_to_outbound(
         rejected_at=row["rejected_at"],
         rejection_reason=row["rejection_reason"],
         provider_message_id=row["provider_message_id"],
+        send_attempt_count=row["send_attempt_count"],
+        last_attempt_at=row["last_attempt_at"],
+        sent_at=row["sent_at"],
+        failed_at=row["failed_at"],
+        error_message=row["error_message"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

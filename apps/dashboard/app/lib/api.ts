@@ -6,7 +6,8 @@ import type {
   ConversationSummary,
   KnowledgeItem,
   OperatorRole,
-  OutboxReviewItem
+  OutboxReviewItem,
+  OutboxSendConfig
 } from "./types";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -159,6 +160,10 @@ export function dashboardOutboxPath(): string {
   return "/operator/dashboard/outbox?limit=200";
 }
 
+export function outboxSendConfigPath(): string {
+  return "/operator/outbox/send-config";
+}
+
 export function knowledgePath(): string {
   return "/operator/knowledge";
 }
@@ -170,7 +175,8 @@ export type {
   ConversationSummary,
   KnowledgeItem,
   OperatorRole,
-  OutboxReviewItem
+  OutboxReviewItem,
+  OutboxSendConfig
 };
 
 async function authHeaders(): Promise<Record<string, string>> {

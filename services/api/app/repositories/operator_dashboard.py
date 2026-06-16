@@ -111,6 +111,10 @@ class DashboardOutboxReviewItem:
     requires_review: bool
     provider_message_id: str | None
     send_attempt_count: int
+    last_attempt_at: Any
+    sent_at: Any
+    failed_at: Any
+    error_message: str | None
     created_at: Any
     updated_at: Any
     customer_message_text: str | None
@@ -314,15 +318,22 @@ def list_dashboard_outbox_review(
     *,
     engine: Engine,
     tenant_slug: str,
-    status_filter: str = "PENDING_REVIEW",
+    status_filter: str | None = None,
     limit: int = 100,
 ) -> list[DashboardOutboxReviewItem]:
     limit = min(max(limit, 1), 200)
+    status_clause = "AND om.status IN ('PENDING_REVIEW', 'APPROVED', 'FAILED', 'SENT')"
+    params: dict[str, Any] = {"limit": limit}
+    if status_filter is not None:
+        status_clause = "AND om.status = :status_filter"
+        params["status_filter"] = status_filter
+
     with engine.connect() as connection:
         tenant_id = _get_active_tenant_id(connection, tenant_slug)
+        params["tenant_id"] = tenant_id
         rows = connection.execute(
             text(
-                """
+                f"""
                 SELECT
                     om.id AS outbound_id,
                     om.conversation_id,
@@ -336,6 +347,10 @@ def list_dashboard_outbox_review(
                     om.requires_review,
                     om.provider_message_id,
                     om.send_attempt_count,
+                    om.last_attempt_at,
+                    om.sent_at,
+                    om.failed_at,
+                    om.error_message,
                     om.created_at,
                     om.updated_at,
                     m.body_text AS customer_message_text,
@@ -401,16 +416,12 @@ def list_dashboard_outbox_review(
                     ) source
                 ) ks ON true
                 WHERE om.tenant_id = :tenant_id
-                  AND om.status = :status_filter
+                  {status_clause}
                 ORDER BY om.created_at DESC
                 LIMIT :limit
                 """
             ),
-            {
-                "tenant_id": tenant_id,
-                "status_filter": status_filter,
-                "limit": limit,
-            },
+            params,
         ).mappings().all()
         return [_row_to_outbox_item(row) for row in rows]
 
@@ -525,6 +536,10 @@ def _row_to_outbox_item(row: Any) -> DashboardOutboxReviewItem:
         requires_review=row["requires_review"],
         provider_message_id=row["provider_message_id"],
         send_attempt_count=row["send_attempt_count"],
+        last_attempt_at=row["last_attempt_at"],
+        sent_at=row["sent_at"],
+        failed_at=row["failed_at"],
+        error_message=row["error_message"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         customer_message_text=row["customer_message_text"],

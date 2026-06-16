@@ -14,11 +14,15 @@ from app.repositories.outbox import (
     reject_outbound_message,
 )
 from app.schemas import (
+    OutboxSendConfigResponse,
     OutboundApprovalRequest,
     OutboundMessageResponse,
     OutboundRejectionRequest,
     OutboundStatus,
 )
+from app.services.whatsapp_sender import send_approved_outbound
+from app.settings import Settings, get_settings
+from app.whatsapp_provider import WhatsAppProviderError, get_whatsapp_provider
 router = APIRouter(prefix="/operator/outbox", tags=["outbox-review"])
 
 
@@ -38,6 +42,17 @@ def list_messages(
         return [OutboundMessageResponse.from_outbound(item) for item in items]
     except (LookupError, SQLAlchemyError) as exc:
         raise HTTPException(status_code=503, detail="Outbox could not be listed") from exc
+
+
+@router.get("/send-config", response_model=OutboxSendConfigResponse)
+def send_config(
+    auth: AuthContext = Depends(require_roles(*READ_ROLES)),
+    settings: Settings = Depends(get_settings),
+) -> OutboxSendConfigResponse:
+    _ = auth
+    return OutboxSendConfigResponse(
+        whatsapp_send_enabled=settings.whatsapp_send_enabled,
+    )
 
 
 @router.get(
@@ -124,3 +139,32 @@ def reject(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=503, detail="Outbound message could not be rejected") from exc
+
+
+@router.post("/{outbound_id}/send", response_model=OutboundMessageResponse)
+def send(
+    outbound_id: UUID,
+    auth: AuthContext = Depends(require_roles(*OPERATE_ROLES, csrf=True)),
+    settings: Settings = Depends(get_settings),
+) -> OutboundMessageResponse:
+    try:
+        item = send_approved_outbound(
+            engine=get_engine(),
+            tenant_slug=auth.tenant_slug,
+            outbound_id=outbound_id,
+            operator_name=auth.display_name,
+            provider=get_whatsapp_provider(settings),
+            send_enabled=settings.whatsapp_send_enabled,
+        )
+        return OutboundMessageResponse.from_outbound(item)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OutboxTransitionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except WhatsAppProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="WhatsApp provider send failed",
+        ) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Outbound message could not be sent") from exc

@@ -359,6 +359,11 @@ class OutboundMessageResponse(BaseModel):
     rejected_at: datetime | None
     rejection_reason: str | None
     provider_message_id: str | None
+    send_attempt_count: int
+    last_attempt_at: datetime | None
+    sent_at: datetime | None
+    failed_at: datetime | None
+    error_message: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -383,9 +388,18 @@ class OutboundMessageResponse(BaseModel):
             rejected_at=item.rejected_at,
             rejection_reason=item.rejection_reason,
             provider_message_id=item.provider_message_id,
+            send_attempt_count=item.send_attempt_count,
+            last_attempt_at=item.last_attempt_at,
+            sent_at=item.sent_at,
+            failed_at=item.failed_at,
+            error_message=item.error_message,
             created_at=item.created_at,
             updated_at=item.updated_at,
         )
+
+
+class OutboxSendConfigResponse(BaseModel):
+    whatsapp_send_enabled: bool
 
 
 class DashboardConversationSummaryResponse(BaseModel):
@@ -589,6 +603,10 @@ class DashboardOutboxReviewItemResponse(BaseModel):
     requires_review: bool
     provider_message_id: str | None
     send_attempt_count: int
+    last_attempt_at: datetime | None
+    sent_at: datetime | None
+    failed_at: datetime | None
+    error_message: str | None
     created_at: datetime
     updated_at: datetime
     customer_message_text: str | None
@@ -612,6 +630,10 @@ class DashboardOutboxReviewItemResponse(BaseModel):
             requires_review=item.requires_review,
             provider_message_id=item.provider_message_id,
             send_attempt_count=item.send_attempt_count,
+            last_attempt_at=item.last_attempt_at,
+            sent_at=item.sent_at,
+            failed_at=item.failed_at,
+            error_message=item.error_message,
             created_at=item.created_at,
             updated_at=item.updated_at,
             customer_message_text=item.customer_message_text,

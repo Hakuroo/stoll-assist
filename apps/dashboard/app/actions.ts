@@ -61,6 +61,11 @@ export async function approveOutbound(outboundId: string): Promise<void> {
   revalidatePath("/respuestas");
 }
 
+export async function sendOutbound(outboundId: string): Promise<void> {
+  await apiPost(`/operator/outbox/${outboundId}/send`, {});
+  revalidatePath("/respuestas");
+}
+
 export async function rejectOutbound(outboundId: string, formData: FormData): Promise<void> {
   const reason = String(formData.get("reason") ?? "").trim();
   await apiPost(`/operator/outbox/${outboundId}/reject`, {
