@@ -328,6 +328,7 @@ class OutboundStatus(StrEnum):
     QUEUED = "QUEUED"
     SENT = "SENT"
     FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
     CANCELLED = "CANCELLED"
 
 
@@ -361,8 +362,16 @@ class OutboundMessageResponse(BaseModel):
     provider_message_id: str | None
     send_attempt_count: int
     last_attempt_at: datetime | None
+    lease_expires_at: datetime | None
     sent_at: datetime | None
     failed_at: datetime | None
+    unknown_at: datetime | None
+    delivery_status: str | None
+    delivered_at: datetime | None
+    read_at: datetime | None
+    provider_failed_at: datetime | None
+    delivery_error_code: str | None
+    delivery_error_message: str | None
     error_message: str | None
     created_at: datetime
     updated_at: datetime
@@ -390,8 +399,16 @@ class OutboundMessageResponse(BaseModel):
             provider_message_id=item.provider_message_id,
             send_attempt_count=item.send_attempt_count,
             last_attempt_at=item.last_attempt_at,
+            lease_expires_at=item.lease_expires_at,
             sent_at=item.sent_at,
             failed_at=item.failed_at,
+            unknown_at=item.unknown_at,
+            delivery_status=item.delivery_status,
+            delivered_at=item.delivered_at,
+            read_at=item.read_at,
+            provider_failed_at=item.provider_failed_at,
+            delivery_error_code=item.delivery_error_code,
+            delivery_error_message=item.delivery_error_message,
             error_message=item.error_message,
             created_at=item.created_at,
             updated_at=item.updated_at,
@@ -604,8 +621,16 @@ class DashboardOutboxReviewItemResponse(BaseModel):
     provider_message_id: str | None
     send_attempt_count: int
     last_attempt_at: datetime | None
+    lease_expires_at: datetime | None
     sent_at: datetime | None
     failed_at: datetime | None
+    unknown_at: datetime | None
+    delivery_status: str | None
+    delivered_at: datetime | None
+    read_at: datetime | None
+    provider_failed_at: datetime | None
+    delivery_error_code: str | None
+    delivery_error_message: str | None
     error_message: str | None
     created_at: datetime
     updated_at: datetime
@@ -631,8 +656,16 @@ class DashboardOutboxReviewItemResponse(BaseModel):
             provider_message_id=item.provider_message_id,
             send_attempt_count=item.send_attempt_count,
             last_attempt_at=item.last_attempt_at,
+            lease_expires_at=item.lease_expires_at,
             sent_at=item.sent_at,
             failed_at=item.failed_at,
+            unknown_at=item.unknown_at,
+            delivery_status=item.delivery_status,
+            delivered_at=item.delivered_at,
+            read_at=item.read_at,
+            provider_failed_at=item.provider_failed_at,
+            delivery_error_code=item.delivery_error_code,
+            delivery_error_message=item.delivery_error_message,
             error_message=item.error_message,
             created_at=item.created_at,
             updated_at=item.updated_at,

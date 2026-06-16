@@ -112,8 +112,17 @@ class DashboardOutboxReviewItem:
     provider_message_id: str | None
     send_attempt_count: int
     last_attempt_at: Any
+    lease_owner: str | None
+    lease_expires_at: Any
     sent_at: Any
     failed_at: Any
+    unknown_at: Any
+    delivery_status: str | None
+    delivered_at: Any
+    read_at: Any
+    provider_failed_at: Any
+    delivery_error_code: str | None
+    delivery_error_message: str | None
     error_message: str | None
     created_at: Any
     updated_at: Any
@@ -322,7 +331,7 @@ def list_dashboard_outbox_review(
     limit: int = 100,
 ) -> list[DashboardOutboxReviewItem]:
     limit = min(max(limit, 1), 200)
-    status_clause = "AND om.status IN ('PENDING_REVIEW', 'APPROVED', 'FAILED', 'SENT')"
+    status_clause = "AND om.status IN ('PENDING_REVIEW', 'APPROVED', 'QUEUED', 'FAILED', 'UNKNOWN', 'SENT')"
     params: dict[str, Any] = {"limit": limit}
     if status_filter is not None:
         status_clause = "AND om.status = :status_filter"
@@ -348,8 +357,17 @@ def list_dashboard_outbox_review(
                     om.provider_message_id,
                     om.send_attempt_count,
                     om.last_attempt_at,
+                    om.lease_owner,
+                    om.lease_expires_at,
                     om.sent_at,
                     om.failed_at,
+                    om.unknown_at,
+                    om.delivery_status,
+                    om.delivered_at,
+                    om.read_at,
+                    om.provider_failed_at,
+                    om.delivery_error_code,
+                    om.delivery_error_message,
                     om.error_message,
                     om.created_at,
                     om.updated_at,
@@ -537,8 +555,17 @@ def _row_to_outbox_item(row: Any) -> DashboardOutboxReviewItem:
         provider_message_id=row["provider_message_id"],
         send_attempt_count=row["send_attempt_count"],
         last_attempt_at=row["last_attempt_at"],
+        lease_owner=row["lease_owner"],
+        lease_expires_at=row["lease_expires_at"],
         sent_at=row["sent_at"],
         failed_at=row["failed_at"],
+        unknown_at=row["unknown_at"],
+        delivery_status=row["delivery_status"],
+        delivered_at=row["delivered_at"],
+        read_at=row["read_at"],
+        provider_failed_at=row["provider_failed_at"],
+        delivery_error_code=row["delivery_error_code"],
+        delivery_error_message=row["delivery_error_message"],
         error_message=row["error_message"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],

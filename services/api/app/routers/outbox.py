@@ -23,6 +23,7 @@ from app.schemas import (
 from app.services.whatsapp_sender import send_approved_outbound
 from app.settings import Settings, get_settings
 from app.whatsapp_provider import WhatsAppProviderError, get_whatsapp_provider
+
 router = APIRouter(prefix="/operator/outbox", tags=["outbox-review"])
 
 
@@ -155,6 +156,7 @@ def send(
             operator_name=auth.display_name,
             provider=get_whatsapp_provider(settings),
             send_enabled=settings.whatsapp_send_enabled,
+            lease_seconds=settings.whatsapp_send_lease_seconds,
         )
         return OutboundMessageResponse.from_outbound(item)
     except LookupError as exc:

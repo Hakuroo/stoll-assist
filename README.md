@@ -112,6 +112,7 @@ META_ACCESS_TOKEN=...
 META_PHONE_NUMBER_ID=...
 META_API_VERSION=vXX.X
 WHATSAPP_SEND_ENABLED=false
+WHATSAPP_SEND_LEASE_SECONDS=120
 ```
 
 No subas `.env` a Git ni pegues esos valores en logs, issues o PRs. El endpoint `GET`
@@ -121,6 +122,19 @@ responde el challenge de Meta cuando el verify token coincide. El `POST` valida
 La aprobacion de un outbound no envia WhatsApp. El envio es una accion separada del panel
 y de `POST /operator/outbox/{outbound_id}/send`; ademas queda bloqueado mientras
 `WHATSAPP_SEND_ENABLED=false`, que es el valor por defecto.
+
+Runbook breve para una futura prueba live con el numero de prueba:
+
+1. Mantener `LLM_DRAFTING_ENABLED=false` y no configurar OpenAI real para esta prueba.
+2. Completar credenciales de Meta solo en `.env` local; no pegarlas en logs, issues ni PRs.
+3. Verificar en Meta que el webhook use `GET/POST /webhooks/whatsapp` y el verify token local.
+4. Levantar el stack y confirmar que el webhook `GET` responde el challenge esperado.
+5. Crear o aprobar un outbound hasta `APPROVED`; confirmar en el panel que aprobar no envia.
+6. Cambiar `WHATSAPP_SEND_ENABLED=true` solo durante la ventana de prueba controlada.
+7. Usar el boton "Enviar" una sola vez sobre un outbound `APPROVED`.
+8. Confirmar que el outbound pase a `SENT` con `provider_message_id` y luego observar webhooks de entrega.
+9. Si queda `UNKNOWN`, no reintentar automaticamente: conciliar en Meta o revisar manualmente.
+10. Volver `WHATSAPP_SEND_ENABLED=false` al terminar.
 
 ## Estado
 

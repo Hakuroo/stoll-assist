@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from uuid import uuid4
 
 import pytest
@@ -9,9 +10,22 @@ from sqlalchemy import text
 
 from app.database import get_engine
 from app.main import app
-from app.repositories.outbox import approve_outbound_message, claim_outbound_for_send
+from app.repositories.outbox import (
+    OutboxTransitionError,
+    approve_outbound_message,
+    claim_outbound_for_send,
+)
+from app.repositories.webhook_events import store_webhook_event
+from app.services.webhook_processor import process_whatsapp_webhook
+from app.services.whatsapp_sender import send_approved_outbound
 from app.settings import get_settings
-from app.whatsapp_provider import FakeWhatsAppProvider, WhatsAppProviderError
+from app.webhooks import extract_whatsapp_event_identity
+from app.whatsapp_provider import (
+    FakeWhatsAppProvider,
+    WhatsAppProviderError,
+    WhatsAppProviderPreSendError,
+    WhatsAppProviderUncertainError,
+)
 
 import app.routers.outbox as outbox_router
 from auth_helpers import csrf_headers, login, seed_user
@@ -98,6 +112,137 @@ def test_whatsapp_webhook_post_validates_signature_and_deduplicates(app_context)
     assert second.json()["event_id"] == first.json()["event_id"]
 
 
+def test_status_webhook_duplicate_is_idempotent(app_context):
+    engine, tenant_slug = app_context
+    provider_message_id = f"wamid.STATUS-{uuid4()}"
+    _create_outbound(
+        engine,
+        tenant_slug,
+        status="SENT",
+        provider_message_id=provider_message_id,
+    )
+
+    payload = _status_webhook_payload(
+        provider_message_id=provider_message_id,
+        status="delivered",
+        timestamp="1781237100",
+    )
+    _process_status_payload(engine, tenant_slug, payload)
+    _process_status_payload(engine, tenant_slug, payload, expected_status="IGNORED")
+
+    with engine.connect() as connection:
+        event_count = connection.execute(
+            text(
+                """
+                SELECT count(*)
+                FROM outbound_delivery_events
+                WHERE provider_message_id = :provider_message_id
+                  AND delivery_status = 'DELIVERED'
+                """
+            ),
+            {"provider_message_id": provider_message_id},
+        ).scalar_one()
+    assert event_count == 1
+    _assert_outbound_status(
+        engine,
+        provider_message_id=provider_message_id,
+        status="SENT",
+        attempts=0,
+        delivery_status="DELIVERED",
+    )
+
+
+def test_status_webhook_transitions_sent_delivered_read(app_context):
+    engine, tenant_slug = app_context
+    provider_message_id = f"wamid.STATUS-{uuid4()}"
+    _create_outbound(
+        engine,
+        tenant_slug,
+        status="SENT",
+        provider_message_id=provider_message_id,
+        delivery_status="SENT",
+    )
+
+    _process_status_payload(
+        engine,
+        tenant_slug,
+        _status_webhook_payload(
+            provider_message_id=provider_message_id,
+            status="sent",
+            timestamp="1781237100",
+        ),
+    )
+    _process_status_payload(
+        engine,
+        tenant_slug,
+        _status_webhook_payload(
+            provider_message_id=provider_message_id,
+            status="delivered",
+            timestamp="1781237200",
+        ),
+    )
+    _process_status_payload(
+        engine,
+        tenant_slug,
+        _status_webhook_payload(
+            provider_message_id=provider_message_id,
+            status="read",
+            timestamp="1781237300",
+        ),
+    )
+
+    _assert_outbound_status(
+        engine,
+        provider_message_id=provider_message_id,
+        status="SENT",
+        attempts=0,
+        delivery_status="READ",
+    )
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT delivered_at, read_at
+                FROM outbound_messages
+                WHERE provider_message_id = :provider_message_id
+                """
+            ),
+            {"provider_message_id": provider_message_id},
+        ).mappings().one()
+    assert row["delivered_at"] is not None
+    assert row["read_at"] is not None
+
+
+def test_late_status_event_does_not_degrade_read_to_sent(app_context):
+    engine, tenant_slug = app_context
+    provider_message_id = f"wamid.STATUS-{uuid4()}"
+    _create_outbound(
+        engine,
+        tenant_slug,
+        status="SENT",
+        provider_message_id=provider_message_id,
+        delivery_status="READ",
+    )
+
+    _process_status_payload(
+        engine,
+        tenant_slug,
+        _status_webhook_payload(
+            provider_message_id=provider_message_id,
+            status="sent",
+            timestamp="1781237400",
+        ),
+    )
+
+    _assert_outbound_status(
+        engine,
+        provider_message_id=provider_message_id,
+        status="SENT",
+        attempts=0,
+        delivery_status="READ",
+    )
+
+
 def test_send_endpoint_blocks_when_feature_flag_is_disabled(app_context):
     engine, tenant_slug = app_context
     client = _logged_client(engine, tenant_slug, role="OPERATOR")
@@ -182,6 +327,110 @@ def test_send_success_uses_fake_provider_once_and_persists_provider_message_id(
     )
 
 
+def test_concurrent_sends_call_fake_provider_once(app_context):
+    engine, tenant_slug = app_context
+    outbound_id = _create_outbound(engine, tenant_slug, status="APPROVED")
+    fake = FakeWhatsAppProvider(
+        provider_message_id="wamid.CONCURRENT",
+        delay_seconds=0.2,
+    )
+
+    def _send_once():
+        return send_approved_outbound(
+            engine=engine,
+            tenant_slug=tenant_slug,
+            outbound_id=outbound_id,
+            operator_name="pytest",
+            provider=fake,
+            send_enabled=True,
+            lease_seconds=30,
+        )
+
+    outcomes = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(_send_once), pool.submit(_send_once)]
+        for future in as_completed(futures):
+            try:
+                outcomes.append(future.result().status)
+            except OutboxTransitionError as exc:
+                outcomes.append(str(exc))
+
+    assert len(fake.calls) == 1
+    assert "SENT" in outcomes
+    assert any("already being sent" in item for item in outcomes)
+    _assert_outbound_status(
+        engine,
+        outbound_id,
+        status="SENT",
+        attempts=1,
+        provider_message_id="wamid.CONCURRENT",
+    )
+
+
+def test_active_send_lease_cannot_be_stolen(app_context):
+    engine, tenant_slug = app_context
+    outbound_id = _create_outbound(engine, tenant_slug, status="APPROVED")
+
+    first = claim_outbound_for_send(
+        engine=engine,
+        tenant_slug=tenant_slug,
+        outbound_id=outbound_id,
+        operator_name="pytest",
+        lease_owner="first-lease",
+        lease_seconds=60,
+    )
+
+    assert first.status == "QUEUED"
+    assert first.lease_owner == "first-lease"
+    with pytest.raises(OutboxTransitionError, match="already being sent"):
+        claim_outbound_for_send(
+            engine=engine,
+            tenant_slug=tenant_slug,
+            outbound_id=outbound_id,
+            operator_name="pytest",
+            lease_owner="second-lease",
+            lease_seconds=60,
+        )
+    _assert_outbound_status(engine, outbound_id, status="QUEUED", attempts=1)
+
+
+def test_expired_send_lease_can_be_recovered(app_context):
+    engine, tenant_slug = app_context
+    outbound_id = _create_outbound(engine, tenant_slug, status="APPROVED")
+    claim_outbound_for_send(
+        engine=engine,
+        tenant_slug=tenant_slug,
+        outbound_id=outbound_id,
+        operator_name="pytest",
+        lease_owner="expired-lease",
+        lease_seconds=60,
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE outbound_messages
+                SET lease_expires_at = now() - interval '1 second'
+                WHERE id = :outbound_id
+                """
+            ),
+            {"outbound_id": outbound_id},
+        )
+
+    recovered = claim_outbound_for_send(
+        engine=engine,
+        tenant_slug=tenant_slug,
+        outbound_id=outbound_id,
+        operator_name="pytest",
+        lease_owner="recovered-lease",
+        lease_seconds=60,
+    )
+
+    assert recovered.status == "QUEUED"
+    assert recovered.lease_owner == "recovered-lease"
+    _assert_outbound_status(engine, outbound_id, status="QUEUED", attempts=2)
+
+
 def test_in_flight_retry_does_not_call_provider_again(app_context, monkeypatch):
     engine, tenant_slug = app_context
     client = _logged_client(engine, tenant_slug, role="OPERATOR")
@@ -211,7 +460,11 @@ def test_send_error_marks_failed_without_success_metadata(app_context, monkeypat
     outbound_id = _create_outbound(engine, tenant_slug, status="APPROVED")
     fake = _enable_sending(
         monkeypatch,
-        error=WhatsAppProviderError("simulated provider failure", retryable=True),
+        error=WhatsAppProviderPreSendError(
+            "simulated provider failure",
+            error_type="PRE_SEND_FAILURE",
+            retryable=True,
+        ),
     )
 
     response = client.post(
@@ -224,6 +477,114 @@ def test_send_error_marks_failed_without_success_metadata(app_context, monkeypat
     assert response.json()["detail"] == "WhatsApp provider send failed"
     assert len(fake.calls) == 1
     _assert_outbound_status(engine, outbound_id, status="FAILED", attempts=1)
+
+
+def test_accepted_request_timeout_marks_unknown(app_context, monkeypatch):
+    engine, tenant_slug = app_context
+    client = _logged_client(engine, tenant_slug, role="OPERATOR")
+    outbound_id = _create_outbound(engine, tenant_slug, status="APPROVED")
+    fake = _enable_sending(
+        monkeypatch,
+        error=WhatsAppProviderUncertainError(
+            "accepted by provider and connection timed out",
+            error_type="REQUEST_TIMEOUT_UNKNOWN",
+            request_started=True,
+            provider_message_id="wamid.UNKNOWN",
+            latency_ms=123,
+        ),
+    )
+
+    response = client.post(
+        f"/operator/outbox/{outbound_id}/send",
+        headers=csrf_headers(client),
+        json={},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "UNKNOWN"
+    assert response.json()["provider_message_id"] == "wamid.UNKNOWN"
+    assert len(fake.calls) == 1
+    _assert_outbound_status(
+        engine,
+        outbound_id,
+        status="UNKNOWN",
+        attempts=1,
+        provider_message_id="wamid.UNKNOWN",
+    )
+    _assert_last_attempt(
+        engine,
+        outbound_id,
+        status="UNKNOWN",
+        error_type="REQUEST_TIMEOUT_UNKNOWN",
+        provider_message_id="wamid.UNKNOWN",
+    )
+
+
+def test_unknown_outbound_is_not_retried_automatically(app_context, monkeypatch):
+    engine, tenant_slug = app_context
+    client = _logged_client(engine, tenant_slug, role="OPERATOR")
+    outbound_id = _create_outbound(
+        engine,
+        tenant_slug,
+        status="UNKNOWN",
+        provider_message_id="wamid.UNKNOWN-NO-RETRY",
+    )
+    fake = _enable_sending(monkeypatch, provider_message_id="wamid.SHOULD-NOT-SEND")
+
+    response = client.post(
+        f"/operator/outbox/{outbound_id}/send",
+        headers=csrf_headers(client),
+        json={},
+    )
+
+    assert response.status_code == 409
+    assert "unknown send result" in response.json()["detail"]
+    assert fake.calls == []
+    _assert_outbound_status(
+        engine,
+        outbound_id,
+        status="UNKNOWN",
+        attempts=0,
+        provider_message_id="wamid.UNKNOWN-NO-RETRY",
+    )
+
+
+def test_meta_error_is_recorded_without_exposing_secrets(app_context, monkeypatch):
+    engine, tenant_slug = app_context
+    client = _logged_client(engine, tenant_slug, role="ADMIN")
+    outbound_id = _create_outbound(engine, tenant_slug, status="APPROVED")
+    fake = _enable_sending(
+        monkeypatch,
+        error=WhatsAppProviderError(
+            "Meta rejected request access_token=super-secret-token",
+            error_type="META_HTTP_ERROR",
+            status_code=400,
+            request_started=True,
+            latency_ms=9,
+        ),
+    )
+
+    response = client.post(
+        f"/operator/outbox/{outbound_id}/send",
+        headers=csrf_headers(client),
+        json={},
+    )
+
+    assert response.status_code == 502
+    assert len(fake.calls) == 1
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT error_message
+                FROM outbound_messages
+                WHERE id = :outbound_id
+                """
+            ),
+            {"outbound_id": outbound_id},
+        ).mappings().one()
+    assert "super-secret-token" not in row["error_message"]
+    assert "access_token=[redacted]" in row["error_message"]
 
 
 def test_approval_still_does_not_send(app_context, monkeypatch):
@@ -244,15 +605,24 @@ def test_approval_still_does_not_send(app_context, monkeypatch):
     assert fake.calls == []
 
 
+def test_whatsapp_send_feature_flag_defaults_to_false():
+    assert get_settings().whatsapp_send_enabled is False
+
+
 def _enable_sending(
     monkeypatch,
     *,
     provider_message_id: str = "wamid.FAKE",
     error: WhatsAppProviderError | None = None,
+    delay_seconds: float = 0.0,
 ) -> FakeWhatsAppProvider:
     settings = get_settings().model_copy(update={"whatsapp_send_enabled": True})
     app.dependency_overrides[get_settings] = lambda: settings
-    fake = FakeWhatsAppProvider(provider_message_id=provider_message_id, error=error)
+    fake = FakeWhatsAppProvider(
+        provider_message_id=provider_message_id,
+        error=error,
+        delay_seconds=delay_seconds,
+    )
     monkeypatch.setattr(outbox_router, "get_whatsapp_provider", lambda _: fake)
     return fake
 
@@ -265,7 +635,14 @@ def _logged_client(engine, tenant_slug: str, *, role: str) -> TestClient:
     return client
 
 
-def _create_outbound(engine, tenant_slug: str, *, status: str):
+def _create_outbound(
+    engine,
+    tenant_slug: str,
+    *,
+    status: str,
+    provider_message_id: str | None = None,
+    delivery_status: str | None = None,
+):
     with engine.begin() as connection:
         tenant_id = connection.execute(
             text("SELECT id FROM tenants WHERE slug = :slug"),
@@ -393,6 +770,10 @@ def _create_outbound(engine, tenant_slug: str, *, status: str):
                     body_text,
                     body_sha256,
                     status,
+                    provider_message_id,
+                    delivery_status,
+                    sent_at,
+                    unknown_at,
                     requires_review,
                     approved_by,
                     approved_at
@@ -407,6 +788,10 @@ def _create_outbound(engine, tenant_slug: str, *, status: str):
                     'Hola, podemos ayudarte con la consulta.',
                     :body_sha256,
                     :status,
+                    :provider_message_id,
+                    :delivery_status,
+                    CASE WHEN :status = 'SENT' THEN now() ELSE NULL END,
+                    CASE WHEN :status = 'UNKNOWN' THEN now() ELSE NULL END,
                     true,
                     CASE WHEN :status = 'APPROVED' THEN 'pytest' ELSE NULL END,
                     CASE WHEN :status = 'APPROVED' THEN now() ELSE NULL END
@@ -424,41 +809,124 @@ def _create_outbound(engine, tenant_slug: str, *, status: str):
                     "Hola, podemos ayudarte con la consulta.".encode("utf-8")
                 ).hexdigest(),
                 "status": status,
+                "provider_message_id": provider_message_id,
+                "delivery_status": delivery_status,
             },
         ).scalar_one()
 
 
 def _assert_outbound_status(
     engine,
-    outbound_id,
+    outbound_id=None,
     *,
+    provider_message_id: str | None = None,
     status: str,
     attempts: int,
-    provider_message_id: str | None = None,
+    expected_provider_message_id: str | None = None,
+    delivery_status: str | None = None,
 ) -> None:
+    if outbound_id is None and provider_message_id is None:
+        raise AssertionError("outbound_id or provider_message_id is required")
+    where_clause = "id = :lookup" if outbound_id is not None else "provider_message_id = :lookup"
+    lookup = outbound_id if outbound_id is not None else provider_message_id
     with engine.connect() as connection:
         row = connection.execute(
             text(
-                """
-                SELECT status, provider_message_id, send_attempt_count, sent_at, failed_at
+                f"""
+                SELECT
+                    status,
+                    provider_message_id,
+                    send_attempt_count,
+                    sent_at,
+                    failed_at,
+                    unknown_at,
+                    delivery_status,
+                    lease_owner,
+                    lease_expires_at
                 FROM outbound_messages
-                WHERE id = :outbound_id
+                WHERE {where_clause}
                 """
             ),
-            {"outbound_id": outbound_id},
+            {"lookup": lookup},
         ).mappings().one()
 
     assert row["status"] == status
-    assert row["provider_message_id"] == provider_message_id
+    if expected_provider_message_id is not None:
+        assert row["provider_message_id"] == expected_provider_message_id
+    elif outbound_id is not None:
+        assert row["provider_message_id"] == provider_message_id
     assert row["send_attempt_count"] == attempts
+    if delivery_status is not None:
+        assert row["delivery_status"] == delivery_status
     if status == "SENT":
         assert row["sent_at"] is not None
         assert row["failed_at"] is None
     elif status == "FAILED":
         assert row["sent_at"] is None
         assert row["failed_at"] is not None
+        assert row["lease_owner"] is None
+        assert row["lease_expires_at"] is None
+    elif status == "UNKNOWN":
+        assert row["unknown_at"] is not None
+        assert row["lease_owner"] is None
+        assert row["lease_expires_at"] is None
     else:
         assert row["sent_at"] is None
+
+
+def _assert_last_attempt(
+    engine,
+    outbound_id,
+    *,
+    status: str,
+    error_type: str | None = None,
+    provider_message_id: str | None = None,
+) -> None:
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT status, error_type, provider_message_id, completed_at
+                FROM outbound_send_attempts
+                WHERE outbound_message_id = :outbound_id
+                ORDER BY attempt_number DESC
+                LIMIT 1
+                """
+            ),
+            {"outbound_id": outbound_id},
+        ).mappings().one()
+
+    assert row["status"] == status
+    assert row["error_type"] == error_type
+    assert row["provider_message_id"] == provider_message_id
+    assert row["completed_at"] is not None
+
+
+def _process_status_payload(
+    engine,
+    tenant_slug: str,
+    payload: dict,
+    *,
+    expected_status: str = "PROCESSED",
+) -> None:
+    raw_body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    provider_event_id, event_kind = extract_whatsapp_event_identity(payload, raw_body)
+    stored = store_webhook_event(
+        engine=engine,
+        tenant_slug=tenant_slug,
+        provider="whatsapp",
+        provider_event_id=provider_event_id,
+        event_kind=event_kind,
+        payload=payload,
+    )
+    result = process_whatsapp_webhook(
+        engine=engine,
+        event_id=stored.event_id,
+        tenant_slug=tenant_slug,
+        payload=payload,
+        llm_drafting_enabled=False,
+    )
+    assert result.status == expected_status
 
 
 def _signature(raw_body: bytes) -> str:
@@ -495,6 +963,50 @@ def _webhook_payload(*, message_id: str) -> dict:
                                     "text": {"body": "Hola"},
                                 }
                             ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _status_webhook_payload(
+    *,
+    provider_message_id: str,
+    status: str,
+    timestamp: str,
+    error_code: str | None = None,
+) -> dict:
+    status_payload: dict = {
+        "id": provider_message_id,
+        "status": status,
+        "timestamp": timestamp,
+        "recipient_id": "5491112345678",
+    }
+    if error_code is not None:
+        status_payload["errors"] = [
+            {
+                "code": error_code,
+                "title": "Meta delivery error",
+                "message": "Delivery failed",
+            }
+        ]
+    return {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "pytest-entry",
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "messaging_product": "whatsapp",
+                            "metadata": {
+                                "display_phone_number": "5491100000000",
+                                "phone_number_id": "pytest-phone-number-id",
+                            },
+                            "statuses": [status_payload],
                         },
                     }
                 ],
